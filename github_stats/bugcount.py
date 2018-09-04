@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
+"""Stats script to generate the number of opened/closed issues by priority for every
+day."""
 import argparse
 from collections import defaultdict
 from datetime import date, timedelta, datetime
 
 import MySQLdb
 
-from GithubStats import GithubStats, Helper
+from github_stats import GithubStats, Helper
 
 parser = argparse.ArgumentParser(description='Process some integers.')
 parser.add_argument('--mysql-password', required=True)

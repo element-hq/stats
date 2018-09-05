@@ -17,7 +17,7 @@ parser.add_argument('--mysql-password', required=True)
 parser.add_argument('--github-token', required=True)
 args = parser.parse_args()
 
-TABLE_NAME = 'riotweb_issue_totals'
+TABLE_NAME = 'riotweb_bug_totals'
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS
 %s (

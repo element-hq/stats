@@ -17,7 +17,7 @@ parser.add_argument('--mysql-password', required=True)
 parser.add_argument('--github-token', required=True)
 args = parser.parse_args()
 
-TABLE_NAME = 'issue_totals'
+TABLE_NAME = 'riotweb_issue_totals'
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS
 %s (
@@ -63,11 +63,9 @@ DELETE FROM %s
 cursor.execute(delete_entries)
 db.commit()
 
-record_bug_totals = """
+record_bug_totals = ("""
 INSERT INTO %s
-(date, state, priority, cumulative_total)
-VALUES (%s, %s, %s, %s)
-""" % TABLE_NAME
+(date, state, priority, cumulative_total) """ % TABLE_NAME) + "VALUES (%s, %s, %s, %s)"
 
 dates = list(opened_bugs.keys()) + list(closed_bugs.keys())
 start_date = min(dates)

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Stats script to generate the number of opened/closed issues by priority for every
 day."""
+import sys
+sys.dont_write_bytecode = True
+
 import argparse
 from collections import defaultdict
 from datetime import date, timedelta, datetime
@@ -16,7 +19,7 @@ args = parser.parse_args()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS
-generic_bugcount_dailychurn (
+bugcount2_dailychurn (
     date DATE NOT NULL,
     state VARCHAR(11) NOT NULL,
     priority INT,
@@ -48,13 +51,13 @@ for issue in stats.query(date_field='created', query='repo:vector-im/riot-web is
 # Persist to db:
 cursor = db.cursor()
 delete_entries = """
-DELETE FROM generic_bugcount_dailychurn
+DELETE FROM bugcount2_dailychurn
 """
 cursor.execute(delete_entries)
 db.commit()
 
 record_bug_totals = """
-INSERT INTO generic_bugcount_dailychurn
+INSERT INTO bugcount2_dailychurn
 (date, state, priority, bugtotal)
 VALUES (%s, %s, %s, %s)
 """ 

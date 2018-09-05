@@ -17,15 +17,16 @@ parser.add_argument('--mysql-password', required=True)
 parser.add_argument('--github-token', required=True)
 args = parser.parse_args()
 
+TABLE_NAME = 'issue_churn'
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS
-bugcount2_dailychurn (
+%s (
     date DATE NOT NULL,
     state VARCHAR(11) NOT NULL,
     priority INT,
     bugtotal INT NOT NULL
 );
-"""
+""" % TABLE_NAME
 
 # Connect to and setup db:
 db = MySQLdb.connect(host='localhost',
@@ -51,16 +52,16 @@ for issue in stats.query(date_field='created', query='repo:vector-im/riot-web is
 # Persist to db:
 cursor = db.cursor()
 delete_entries = """
-DELETE FROM bugcount2_dailychurn
-"""
+DELETE FROM %s
+""" % TABLE_NAME
 cursor.execute(delete_entries)
 db.commit()
 
 record_bug_totals = """
-INSERT INTO bugcount2_dailychurn
+INSERT INTO %s
 (date, state, priority, bugtotal)
 VALUES (%s, %s, %s, %s)
-""" 
+""" % TABLE_NAME
 
 dates = list(opened_bugs.keys()) + list(closed_bugs.keys())
 start_date = min(dates)

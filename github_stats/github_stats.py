@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+"""Helper functions for pulling issue stats from Github and writing them to a db
+to be scraped by grafana."""
+
 import re
 import time
 from collections import defaultdict

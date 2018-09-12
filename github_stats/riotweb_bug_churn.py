@@ -4,18 +4,12 @@ day."""
 import sys
 sys.dont_write_bytecode = True
 
-import argparse
 from collections import defaultdict
 from datetime import date, timedelta, datetime
 
 import MySQLdb
 
-from github_stats import GithubStats, Helper
-
-parser = argparse.ArgumentParser(description='Process some integers.')
-parser.add_argument('--mysql-password', required=True)
-parser.add_argument('--github-token', required=True)
-args = parser.parse_args()
+from github_stats import GithubStats, Helper, CONFIG
 
 TABLE_NAME = 'riotweb_bug_churn'
 SCHEMA = """
@@ -31,12 +25,12 @@ CREATE TABLE IF NOT EXISTS
 # Connect to and setup db:
 db = MySQLdb.connect(host='localhost',
                      user='businessmetrics',
-                     passwd=args.mysql_password,
+                     passwd=CONFIG.MYSQL_PASSWORD,
                      db='businessmetrics',
                      port=3306)
 Helper.create_table(db, SCHEMA)
 
-stats = GithubStats(args.github_token)
+stats = GithubStats()
 
 
 # Process results from github:

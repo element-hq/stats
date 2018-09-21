@@ -34,7 +34,12 @@ class GithubStats:
 
     def __init__(self, github_token=CONFIG.GITHUB_TOKEN):
         self.github = Github(github_token)
-    
+   
+    def small_query(self, query):
+        for issue in self.github.search_issues(query):
+            yield issue
+            time.sleep(2.0 / 30)
+ 
     def query(self, query, date_field='created', start='2015-01-01', end=None):
         start_date = datetime.strptime(start, self.DATE_FORMAT).date()
         end_date = datetime.strptime(end, self.DATE_FORMAT).date() if end is not None else date.today()

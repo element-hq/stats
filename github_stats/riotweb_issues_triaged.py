@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Stats script for tracking the number of untriaged issues"""
-from datetime import date, timedelta, datetime
-from collections import defaultdict
+from datetime import date
 
 import MySQLdb
 

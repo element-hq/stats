@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """Stats script for tracking issue categories over time."""
+import sys
+sys.dont_write_bytecode = True
+
 from collections import defaultdict
 from datetime import date, timedelta, datetime
 
@@ -13,7 +16,6 @@ CREATE TABLE IF NOT EXISTS
 %s (
     date DATE NOT NULL,
     state VARCHAR(11) NOT NULL,
-    repo VARCHAR(255) NOT NULL,
     contributor VARCHAR(11) NOT NULL,
     prcount INT NOT NULL
 );
@@ -61,8 +63,6 @@ PAID_TEAM = ['bwindels',
 for issue in stats.query(query='repo:vector-im/riot-web repo:matrix-org/matrix-react-sdk repo:matrix-org/matrix-js-sdk is:pr'):
     # repo = '%s/%s' % (issue.repository.organization.name, issue.repository.name)
     contributor = 'paid' if issue.user.login in PAID_TEAM else 'community'
-    if contributor == 'community':
-        print(issue.user.login)
 
     opened = issue.created_at.date()
     closed = issue.closed_at.date() if issue.closed_at is not None else today + timedelta(days=1)

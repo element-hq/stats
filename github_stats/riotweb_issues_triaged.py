@@ -29,7 +29,7 @@ date_format = '%Y-%m-%d'
 today = date.today()
 
 # Thanks for only returning 1000 results in your paginated result set, github.
-untriaged = stats.small_query(query='repo:vector-im/riot-web is:open is:issue no:label')
+untriaged = stats.small_query(query='repo:vector-im/riot-web is:issue is:open -label:p1 -label:p2 -label:p3 -label:p4 -label:p5 -label:maintenace -label:bug -label:feature -label:support')
 untriaged_count = len(list(untriaged))
 
 # Persist to db:

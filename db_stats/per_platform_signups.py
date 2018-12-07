@@ -11,6 +11,8 @@ import yaml
 from psycopg2 import connect
 from tqdm import tqdm
 
+import MySQLdb
+
 class Config:
 
     def __init__(self):
@@ -20,8 +22,10 @@ class Config:
             self.DB_USER = config['db_user']
             self.DB_PASSWORD = config['db_password']
             self.DB_HOST = config['db_host']
+            self.MYSQL_PASSWORD = config['mysql_password']
 
 CONFIG = Config()
+
 
 connection = connect(dbname=CONFIG.DB_NAME,
                      user=CONFIG.DB_USER,
@@ -54,7 +58,8 @@ class Entities:
         query = """
         SELECT name, creation_ts
         FROM users
-        WHERE creation_ts BETWEEN %(start)s AND %(end)s
+        WHERE creation_ts >= %(start)s
+        AND creation_ts < %(end)s
         AND password_hash != ''
         """
         with connection.cursor() as cursor:
@@ -92,8 +97,8 @@ if len(sys.argv) == 3:
     start = datetime.datetime.strptime(sys.argv[1], FORMAT)
     end = datetime.datetime.strptime(sys.argv[2], FORMAT)
 else:
-    start = datetime.datetime.today()
-    end = start + datetime.timedelta(days=1)
+    end = datetime.datetime.today()
+    start = end - datetime.timedelta(days=1)
 
 #Populate the dict
 stats = {}
@@ -106,5 +111,56 @@ for user in tqdm(users):
     d = str(datetime.datetime.fromtimestamp(user['timestamp'] / 1000).date())
     stats[d][platform] += 1
 
-print(json.dumps(stats, indent=2))
+class Helper:
+    """Misc helper methods"""
+
+    @staticmethod 
+    def create_table(db, schema):
+        """This method executes a CREATE TABLE IF NOT EXISTS command
+        _without_ generating a mysql warning if the table already exists."""
+        cursor = db.cursor()  
+        cursor.execute('SET sql_notes = 0;')
+        cursor.execute(schema)
+        cursor.execute('SET sql_notes = 1;')
+        db.commit()
+
+TABLE_NAME = 'riot_signups_by_platform'
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS
+%s (
+    date DATE NOT NULL,
+    platform VARCHAR(12) NOT NULL,
+    total INT
+);
+""" % TABLE_NAME
+
+# Connect to and setup db:
+db = MySQLdb.connect(host='localhost',
+                     user='businessmetrics',
+                     passwd=CONFIG.MYSQL_PASSWORD,
+                     db='businessmetrics',
+                     port=3306)
+Helper.create_table(db, SCHEMA)
+
+with db.cursor() as cursor:
+    format_strings = ','.join(['%s'] * len(stats.keys()))
+    delete_entries = """
+    DELETE FROM riot_signups_by_platform
+    WHERE date in (%s)
+    """ % format_strings
+    cursor.execute(delete_entries, stats.keys())
+    db.commit()
+    
+    insert_entries = """
+    INSERT INTO riot_signups_by_platform
+    VALUES (%s, %s, %s)
+    """
+    for date, values in stats.items():
+        print(values)
+        for platform, count in values.items():
+            if not platform:
+                platform = 'None'
+            print(date, platform, count) 
+            cursor.execute(insert_entries, (date, platform, count))
+    db.commit()
 

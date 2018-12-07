@@ -2,3 +2,4 @@ __pycache__
 include
 db_stats/venv
 github_stats/venv
+*.swp

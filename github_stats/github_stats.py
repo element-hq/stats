@@ -103,26 +103,45 @@ class ProjectStats:
                 github_response = requests.get(next_url,
                                                headers=headers,
                                                auth=auth)
-    
-    @staticmethod 
-    def get_column_counts(github_token, project_string, archived_state={}):
+   
+    @staticmethod
+    def get_project_number_from_project_string(github_token, project_string):
         """A merry dance to go from the repo and project number that we know to the columns and their
-        counts via some totally opaque internal github ids."""
-        project_number = project_string.split('/')[-1]
-        repo = project_string[0:-1*(10 + len(project_number))]
-        
+        counts via some totally opaque internal github ids.
+        Just supply a github-url style string, such as:
+            orgs/matrix-org/projects/2
+            repos/vector-im/riot-web/projects/11
+        and it'll return an id you can use with the /projects/<id>/columns api
+        """
+        if project_string.startswith('orgs'):
+            # We're an org-level project, e.g. orgs/matrix-org/projects/2
+            (_, org, _, project_number) = project_string.split('/')
+            list_projects = 'https://api.github.com/orgs/%s/projects' % org
+        else:
+            # We're a repo-level project, e.g. vector-im/riot-web/projects/11
+            (org, repo, _, project_number) = project_string.split('/')
+            list_projects = 'https://api.github.com/repos/%s/%s/projects' % (org, repo)
+
         headers = {'Accept': 'application/vnd.github.inertia-preview+json'}
         auth = HTTPBasicAuth('lampholder',
                              github_token)
-        
-        list_projects = 'https://api.github.com/repos/%s/projects'
+       
         projects = [project
-                    for project in requests.get(list_projects % repo, headers=headers, auth=auth).json()
+                    for project in requests.get(list_projects, headers=headers, auth=auth).json()
                     if project['number'] == int(project_number)] + [None]
         project = projects[0]
-        
+
+        return project
+ 
+    @staticmethod 
+    def get_column_counts(github_token, project_string, archived_state={}):
+        project = ProjectStats.get_project_number_from_project_string(github_token, project_string) 
         get_project = 'https://api.github.com/projects/%d/columns'
        
+        headers = {'Accept': 'application/vnd.github.inertia-preview+json'}
+        auth = HTTPBasicAuth('lampholder',
+                             github_token)
+
         counts = {column['name']: len(list(ProjectStats.pagination_processor(column['cards_url'],
                                                                              initial_params={'archived_state': archived_state.get(column['name'], 'not_archived')},
                                                                              headers=headers,

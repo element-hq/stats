@@ -9,6 +9,8 @@ from dateutil import tz
 import argparse
 import MySQLdb
 
+DAY_IN_MILLIS = 24 * 60 * 60 * 1000
+
 
 class Config:
     def __init__(self):
@@ -38,7 +40,7 @@ def get_args():
     return ap.parse_args()
 
 
-def get_rx(conn, DAYS, R):
+def get_rx(conn, first_day, R):
 
     now = datetime.datetime.utcnow()
     today_start = datetime.datetime(
@@ -82,14 +84,20 @@ def get_rx(conn, DAYS, R):
     # """
 
     results = {}
-    day = today_start_unix
-    for i in range(DAYS):
+    day = first_day
+
+    while day <= today_start_unix:
+
         print("day is " + str(day))
         with conn:
             with conn.cursor() as cur:
+                # This query run on a db optimised for acting as secondary and not for 
+                # supporting long running queries
+                start = time.time()
                 cur.execute(sql, (day, day, R, R))
                 results[day] = cur.fetchone()
-                day = day - 24 * 60 * 60 * 1000
+                day = day + DAY_IN_MILLIS
+                time.sleep(time.time() - start)
 
     for k, v in results.items():
         date = datetime.datetime.fromtimestamp(
@@ -99,19 +107,22 @@ def get_rx(conn, DAYS, R):
     return results
 
 
-def write_to_mysql(CONFIG, R, results):
+def get_start_date(db, R):
+    # 22nd May 2018
+    DAWN_OF_TIME = 1526947200000
+    get_last_entry = "SELECT date FROM rx WHERE period=%s ORDER BY DATE DESC LIMIT 1"
+    with db.cursor() as cursor:
+        cursor.execute(get_last_entry, (R,))
+        date = cursor.fetchone()
 
-    # SCHEMA = """
-    # CREATE TABLE IF NOT EXISTS
-    # %s (
-    #     date DATE NOT NULL,
-    #     period INT NOT NULL,
-    #     value INT NOT NULL DEFAULT '0'
-    # );
-    # """ % TABLE_NAME
+        if date:
+            return date[0]
+        else:
+            return DAWN_OF_TIME + R * DAY_IN_MILLIS
 
-    # Connect to and setup db:
-    db = MySQLdb.connect(
+
+def get_mysql_db(CONFIG):
+    return MySQLdb.connect(
         host='localhost',
         user='businessmetrics',
         passwd=CONFIG.MYSQL_PASSWORD,
@@ -119,22 +130,31 @@ def write_to_mysql(CONFIG, R, results):
         port=3306
     )
 
-    with db.cursor() as cursor:
-        delete_entries = "DELETE FROM rx where period=%s"
 
-        cursor.execute(delete_entries, R)
-        db.commit()
+def write_to_mysql(db, R, results):
+
+    # SCHEMA = """
+    # CREATE TABLE IF NOT EXISTS
+    # %s (
+    #     date INT NOT NULL,
+    #     period INT NOT NULL,
+    #     value INT NOT NULL DEFAULT '0'
+    # );
+    # """ % TABLE_NAME
+
+    with db.cursor() as cursor:
         insert_entries = """
         INSERT INTO rx
         (date, period, value) VALUES (%s, %s, %s)
         """
 
         for ts, score in results.items():
-            date = datetime.datetime.fromtimestamp(ts/1000).strftime('%Y-%m-%d')
+            # date = datetime.datetime.fromtimestamp(ts/1000).strftime('%Y-%m-%d')
+
             cursor.execute(
                 insert_entries,
                 (
-                    date,
+                    ts,
                     R,
                     score[0],
                 )
@@ -156,9 +176,14 @@ def main():
         print("Can't connect to psql :(")
 
     args = get_args()
+    R = int(args.retained_period)
 
-    results = get_rx(conn, int(args.days), int(args.retained_period))
-    write_to_mysql(CONFIG, int(args.retained_period), results)
+    mysql_db = get_mysql_db(CONFIG)
+    start_day = get_start_date(mysql_db, R)
+    print(start_day)
+    results = get_rx(conn, start_day, R)
+    
+    write_to_mysql(mysql_db, R, results)
 
 
 if __name__ == '__main__':

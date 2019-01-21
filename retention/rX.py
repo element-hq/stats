@@ -50,17 +50,17 @@ def get_rx(conn, first_day, R):
     today_start_unix = int(time.mktime(today_start.timetuple())) * 1000
 
     sql = """
-    SELECT count(*) 
-    FROM ( 
-        SELECT users.name from users 
-        JOIN user_daily_visits ON users.name=user_daily_visits.user_id 
+    SELECT count(*)
+    FROM (
+        SELECT users.name from users
+        JOIN user_daily_visits ON users.name=user_daily_visits.user_id
         WHERE users.name IN (
-            select user_id 
-            from user_daily_visits 
-            where timestamp <= %s 
+            select user_id
+            from user_daily_visits
+            where timestamp <= %s
             AND timestamp > 1000 * ((%s /1000)  - (%s * 86400))
-        )  
-        AND user_daily_visits.timestamp/1000 - users.creation_ts > 86400 * %s 
+        )
+        AND user_daily_visits.timestamp/1000 - users.creation_ts > 86400 * %s
         AND appservice_id IS NULL AND is_guest=0 GROUP BY users.name
     ) as u
     """
@@ -86,12 +86,10 @@ def get_rx(conn, first_day, R):
     results = {}
     day = first_day
 
-    while day <= today_start_unix:
-
-        print("day is " + str(day))
+    while day < today_start_unix:
         with conn:
             with conn.cursor() as cur:
-                # This query run on a db optimised for acting as secondary and not for 
+                # This query run on a db optimised for acting as secondary and not for
                 # supporting long running queries
                 start = time.time()
                 cur.execute(sql, (day, day, R, R))
@@ -99,11 +97,6 @@ def get_rx(conn, first_day, R):
                 day = day + DAY_IN_MILLIS
                 time.sleep(time.time() - start)
 
-    for k, v in results.items():
-        date = datetime.datetime.fromtimestamp(
-            k/1000
-        ).strftime('%Y-%m-%d')
-        print(date+"," + str(v[0]))
     return results
 
 
@@ -180,9 +173,8 @@ def main():
 
     mysql_db = get_mysql_db(CONFIG)
     start_day = get_start_date(mysql_db, R)
-    print(start_day)
     results = get_rx(conn, start_day, R)
-    
+
     write_to_mysql(mysql_db, R, results)
 
 

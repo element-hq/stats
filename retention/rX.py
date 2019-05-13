@@ -49,7 +49,7 @@ def get_rx(conn, first_day, R):
     )
     today_start_unix = int(time.mktime(today_start.timetuple())) * 1000
 
-    sql = """
+    sql = ""
     SELECT count(*)
     FROM (
         SELECT users.name from users
@@ -117,7 +117,7 @@ def get_start_date(db, R):
 def get_mysql_db(CONFIG):
     return MySQLdb.connect(
         host=CONFIG.MYSQL_HOST,
-        user=CONIFG.MYSQL_USER,
+        user=CONFIG.MYSQL_USER,
         passwd=CONFIG.MYSQL_PASSWORD,
         db=CONFIG.MYSQL_DATABASE,
         port=3306

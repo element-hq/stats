@@ -5,7 +5,6 @@ from psycopg2 import connect
 import datetime
 import argparse
 import logging
-import yaml
 import MySQLdb
 from os.path import expanduser
 
@@ -22,13 +21,15 @@ logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S
 
 class Config:
     def __init__(self):
-        with open(expanduser("~") + "/.stats", "r") as config_file:
-            config = yaml.safe_load(config_file)
-            self.DB_NAME = config["db_name"]
-            self.DB_USER = config["db_user"]
-            self.DB_PASSWORD = config["db_password"]
-            self.DB_HOST = config["db_host"]
-            self.MYSQL_PASSWORD = config["mysql_password"]
+        self.DB_HOST = os.env['STATS_SOURCE_HOST']
+        self.DB_USER = os.env['STATS_SOURCE_USER']
+        self.DB_DATABASE = os.env['STATS_SOURCE_NAME']
+        self.DB_PASSWORD = os.env['STATS_SOURCE_DATABASE']
+
+        self.MYSQL_HOST = os.env['STATS_TARGET_HOST']
+        self.MYSQL_USER = os.env['STATS_TARGET_USER']
+        self.MYSQL_DATABASE = os.env['STATS_TARGET_DB']
+        self.MYSQL_PASSWORD = os.env['STATS_TARGET_PASSWORD']
 
     def get_conn(self):
 
@@ -323,10 +324,10 @@ def write_to_mysql(period, all_cohorts):
 
     # Connect to and setup db:
     db = MySQLdb.connect(
-        host='localhost',
-        user='businessmetrics',
+        host=CONFIG.MYSQL_HOST,
+        user=CONFIG.MYSQL_USER,
         passwd=CONFIG.MYSQL_PASSWORD,
-        db='businessmetrics',
+        db=CONFIG.MYSQL_DB,
         port=3306
     )
 

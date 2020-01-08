@@ -4,3 +4,4 @@ db_stats/venv
 github_stats/venv
 retention/venv
 .swp
+*/.env

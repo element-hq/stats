@@ -1,13 +1,11 @@
 import time
 from psycopg2 import connect
 
-
 import datetime
 import argparse
 import logging
-import yaml
 import MySQLdb
-from os.path import expanduser
+import os
 
 # Script to calculate user retention cohorts and output the results,
 # comma separated to stdout
@@ -22,22 +20,24 @@ logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S
 
 class Config:
     def __init__(self):
-        with open(expanduser("~") + "/.stats", "r") as config_file:
-            config = yaml.safe_load(config_file)
-            self.DB_NAME = config["db_name"]
-            self.DB_USER = config["db_user"]
-            self.DB_PASSWORD = config["db_password"]
-            self.DB_HOST = config["db_host"]
-            self.MYSQL_PASSWORD = config["mysql_password"]
+        self.SYNAPSE_DB_HOST = os.environ["SYNAPSE_DB_HOST"]
+        self.SYNAPSE_DB_USERNAME = os.environ["SYNAPSE_DB_USERNAME"]
+        self.SYNAPSE_DB_PASSWORD = os.environ["SYNAPSE_DB_PASSWORD"]
+        self.SYNAPSE_DB_DATABASE = os.environ["SYNAPSE_DB_DATABASE"]
+        self.SYNAPSE_DB_OPTIONS = os.environ["SYNAPSE_DB_OPTIONS"]
+        self.STATS_DB_HOST = os.environ["STATS_DB_HOST"]
+        self.STATS_DB_USERNAME = os.environ["STATS_DB_USERNAME"]
+        self.STATS_DB_PASSWORD = os.environ["STATS_DB_PASSWORD"]
+        self.STATS_DB_DATABASE = os.environ["STATS_DB_DATABASE"]
+
 
     def get_conn(self):
-
         conn = connect(
-            dbname=CONFIG.DB_NAME,
-            user=CONFIG.DB_USER,
-            password=CONFIG.DB_PASSWORD,
-            host=CONFIG.DB_HOST,
-            options="-c search_path=matrix",
+            dbname=self.SYNAPSE_DB_DATABASE,
+            user=self.SYNAPSE_DB_USERNAME,
+            password=self.SYNAPSE_DB_PASSWORD,
+            host=self.SYNAPSE_DB_HOST,
+            options=self.SYNAPSE_DB_OPTIONS,
         )
         conn.set_session(readonly=True, autocommit=True)
         return conn
@@ -325,11 +325,12 @@ def write_to_mysql(period, all_cohorts):
 
     # Connect to and setup db:
     db = MySQLdb.connect(
-        host='localhost',
-        user='businessmetrics',
-        passwd=CONFIG.MYSQL_PASSWORD,
-        db='businessmetrics',
-        port=3306
+        host=CONFIG.STATS_DB_HOST,
+        user=CONFIG.STATS_DB_USERNAME,
+        passwd=CONFIG.STATS_DB_PASSWORD,
+        db=CONFIG.STATS_DB_DATABASE,
+        port=3306,
+        ssl='ssl'
     )
 
     with db.cursor() as cursor:

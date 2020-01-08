@@ -301,12 +301,14 @@ def write_to_mysql(period, all_cohorts):
 
     # TODO handle updating data where data pre-exists
     # TABLE_NAME = 'cohorts_weekly'
-    if period == 7:
+    if period == 1:
+        table = 'cohorts_daily'
+    elif period == 7:
         table = 'cohorts_weekly'
     elif period == 30:
         table = 'cohorts_monthly'
     else:
-        logging.error('Unsupported period, must be 7 or 30: %s' % period)
+        logging.error('Unsupported period, must be 1, 7 or 30: %s' % period)
     # SCHEMA = """
     # CREATE TABLE IF NOT EXISTS
     # %s (

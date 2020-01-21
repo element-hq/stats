@@ -1,13 +1,14 @@
+#!/usr/bin/env python3
+
 import time
 from psycopg2 import connect
 
-
-import datetime
+from collections import Counter
 import argparse
+import datetime
 import logging
-import yaml
 import MySQLdb
-from os.path import expanduser
+import os
 
 # Script to calculate user retention cohorts and output the results,
 # comma separated to stdout
@@ -16,45 +17,35 @@ ELECTRON = "electron"
 WEB = "web"
 ANDROID = "android"
 IOS = "ios"
+MISSING = "missing"
+OTHER = "other"
+
 ONE_DAY = 86400000
-logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.ERROR)
+logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
 
 class Config:
     def __init__(self):
-        with open(expanduser("~") + "/.stats", "r") as config_file:
-            config = yaml.safe_load(config_file)
-            self.DB_NAME = config["db_name"]
-            self.DB_USER = config["db_user"]
-            self.DB_PASSWORD = config["db_password"]
-            self.DB_HOST = config["db_host"]
-            self.MYSQL_PASSWORD = config["mysql_password"]
+        self.SYNAPSE_DB_HOST = os.environ["SYNAPSE_DB_HOST"]
+        self.SYNAPSE_DB_USERNAME = os.environ["SYNAPSE_DB_USERNAME"]
+        self.SYNAPSE_DB_PASSWORD = os.environ["SYNAPSE_DB_PASSWORD"]
+        self.SYNAPSE_DB_DATABASE = os.environ["SYNAPSE_DB_DATABASE"]
+        self.SYNAPSE_DB_OPTIONS = os.environ["SYNAPSE_DB_OPTIONS"]
+        self.STATS_DB_HOST = os.environ["STATS_DB_HOST"]
+        self.STATS_DB_USERNAME = os.environ["STATS_DB_USERNAME"]
+        self.STATS_DB_PASSWORD = os.environ["STATS_DB_PASSWORD"]
+        self.STATS_DB_DATABASE = os.environ["STATS_DB_DATABASE"]
 
     def get_conn(self):
-
         conn = connect(
-            dbname=CONFIG.DB_NAME,
-            user=CONFIG.DB_USER,
-            password=CONFIG.DB_PASSWORD,
-            host=CONFIG.DB_HOST,
-            options="-c search_path=matrix",
+            dbname=self.SYNAPSE_DB_DATABASE,
+            user=self.SYNAPSE_DB_USERNAME,
+            password=self.SYNAPSE_DB_PASSWORD,
+            host=self.SYNAPSE_DB_HOST,
+            options=self.SYNAPSE_DB_OPTIONS,
         )
         conn.set_session(readonly=True, autocommit=True)
         return conn
-
-
-class Helper:
-    """Misc helper methods"""
-
-    @staticmethod
-    def create_table(db, schema):
-        """This method executes a CREATE TABLE IF NOT EXISTS command
-        _without_ generating a mysql warning if the table already exists."""
-        cursor = db.cursor()
-        cursor.execute('SET sql_notes = 0;')
-        cursor.execute(schema)
-        cursor.execute('SET sql_notes = 1;')
-        db.commit()
 
 
 def str_to_ts(datestring):
@@ -76,47 +67,69 @@ def ts_to_str(ts):
 
 def get_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "-s",
-        "--startdate",
-        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
-        required=True,
-        help="Beginning of first cohort in form %Y-%m-%d",
-    )
+
     ap.add_argument(
         "-p",
         "--period",
-        help="Period over which cohorts are calculated, measured in days. Defaults to 7",
+        type=int,
+        choices=[1, 7, 30],
+        default=7,
+        help="Period over which cohorts / buckets are calculated, measured in days. Defaults to 7",
     )
     ap.add_argument(
-        "-b", "--buckets", help="How many time buckets for each cohort, defaults to 6"
+        "-b",
+        "--buckets",
+        type=int,
+        default=6,
+        help="How many time buckets for each cohort, defaults to 6",
     )
+
+    group = ap.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--cohort_start_date",
+        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
+        help="Beginning of first cohort in the form %Y-%m-%d. "
+             "Will generate all buckets in this cohort")
+
+    group.add_argument(
+        "--bucket_start_date",
+        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
+        help="Beginning of a bucket in the form %Y-%m-%d. "
+             "Will generate all buckets that have this bucket start date")
 
     return ap.parse_args()
 
 
 def parse_cohort_parameters(args):
+    if args.cohort_start_date:
+        mode = "cohort"
+        date = args.cohort_start_date
+    elif args.bucket_start_date:
+        mode = "bucket"
+        date = args.bucket_start_date
+    date = int(date.strftime("%s")) * 1000
 
-    start_date = int(args.startdate.strftime("%s")) * 1000
-    period = 7 * 24 * 60 * 60 * 1000
-
-    if args.period:
-        period = int(args.period) * 24 * 60 * 60 * 1000
+    period = args.period
+    if period == 1:
+        table = 'cohorts_daily'
+    elif period == 7:
+        table = 'cohorts_weekly'
+    elif period == 30:
+        table = 'cohorts_monthly'
+    else:
+        raise ValueError(f"Unexpected period {period}")
+    period = int(period) * 24 * 60 * 60 * 1000
 
     now = int(time.time()) * 1000
-    buckets = 6
-    if args.buckets is not None:
-        buckets = int(args.buckets)
-    if (now - start_date) < buckets * period:
-        buckets = int((now - start_date) / period)
+    if (date + period) > now:
+        raise ValueError(f"{date} is too soon, 0 periods will fit between it and now")
 
-    # end_date = start_date + period * buckets
-    end_date = int(time.time() * 1000)
-
-    return start_date, end_date, buckets, period
+    return mode, date, args.buckets, period, table
 
 
 def user_agent_to_client(user_agent):
+    if user_agent is None or len(user_agent) == 0:
+        return MISSING
 
     ua = user_agent.lower()
 
@@ -129,64 +142,61 @@ def user_agent_to_client(user_agent):
     elif "ios" in ua:
         return IOS
     elif "synapse" in ua or "okhttp" in ua or "python-requests" in ua:
-        pass
-    else:
-        # print("Could not identify UA %s" % ua)
-        pass
-    return None
+        # Never consider this for over-writing of any other client type
+        return MISSING
+
+    return OTHER
 
 
 # select all users that created an account for a given range
-def get_new_users(start_date, period):
-    new_user_sql = """
-    SELECT DISTINCT users.name, udv.device_id, uip.user_agent FROM users
-    LEFT JOIN user_daily_visits as udv
-    ON users.name=udv.user_id
-    LEFT JOIN user_ips as uip
-    ON users.name = uip.user_id
-    where appservice_id is NULL
-    AND is_guest=0
-    AND creation_ts >= %(start_date_seconds)s
-    AND udv.timestamp >= %(start_date)s
-    AND creation_ts < %(end_date_seconds)s
-    AND udv.timestamp < %(end_date)s
-    AND udv.device_id=uip.device_id
-    """
-    start = time.time()
+def get_new_users(start, stop):
+    new_user_sql = """ SELECT DISTINCT users.name, udv.device_id
+                        FROM users
+                        LEFT JOIN user_daily_visits as udv
+                        ON users.name = udv.user_id
+                        WHERE appservice_id is NULL
+                        AND is_guest = 0
+                        AND creation_ts >= %(start_date_seconds)s
+                        AND udv.timestamp >= %(start_date)s
+                        AND creation_ts < %(end_date_seconds)s
+                        AND udv.timestamp < %(end_date)s
+                        AND udv.device_id IS NOT NULL
+                    """
+
+    begin = time.time()
     with CONFIG.get_conn() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 new_user_sql,
                 {
-                    "start_date_seconds": start_date / 1000,
-                    "start_date": start_date,
-                    "end_date_seconds": (start_date + period) / 1000,
-                    "end_date": start_date + period,
+                    "start_date_seconds": start / 1000,
+                    "start_date": start,
+                    "end_date_seconds": stop / 1000,
+                    "end_date": stop,
                 },
             )
             # print('row count is %d' % cursor.rowcount)
             res = cursor.fetchall()
     conn.close()
+
     # Running this query on secondary database not tuned for long running queries
     # this is really heavy handed way of allowing background processes to keep up :/
-    pause = time.time() - start
+    pause = time.time() - begin
     time.sleep(pause)
     return res
 
 
-def get_cohort_buckets(users, start, stop, client):
-
-    # Including client is unnecessary other than as a hack to aid testing :/
-    cohort_sql = """ SELECT DISTINCT udv.user_id, udv.device_id, uip.user_agent
-                        FROM user_daily_visits as udv
-                        LEFT JOIN user_ips as uip
-                        ON udv.user_id = uip.user_id
-                        WHERE udv.user_id IN %s
-                        AND udv.timestamp >= %s and udv.timestamp < %s
-                        AND udv.device_id = uip.device_id
+def get_cohort_user_devices_bucket(users, start, stop):
+    if len(users) == 0:
+        return []
+    cohort_sql = """SELECT DISTINCT user_id, device_id
+                        FROM user_daily_visits
+                        WHERE user_id IN %s
+                        AND timestamp >= %s and timestamp < %s
+                        AND device_id IS NOT NULL
                     """
 
-    now = time.time()
+    begin = time.time()
     with CONFIG.get_conn() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -195,167 +205,218 @@ def get_cohort_buckets(users, start, stop, client):
             )
             res = cursor.fetchall()
     conn.close()
+
     # Running this query on secondary database not tuned for long running queries
     # this is really heavy handed way of allowing background processes to keep up :/
-    pause = time.time() - now
+    pause = time.time() - begin
     time.sleep(pause)
     return res
 
 
-def filter_users_by_client(all_users_devices):
-    """converts user_id device_ids into client types
+def get_user_agents(users, start):
+    if len(users) == 0:
+        return []
+    cohort_sql = """WITH user_devices as (
+                        SELECT DISTINCT user_id, device_id
+                        FROM user_daily_visits
+                        WHERE user_id IN %s
+                        AND timestamp >= %s
+                        AND device_id IS NOT NULL
+                    ) SELECT ud.user_id, ud.device_id, ui.user_agent
+                        FROM user_devices AS ud
+                        LEFT JOIN user_ips AS ui
+                        ON ud.user_id = ui.user_id AND ud.device_id = ui.device_id
+                    UNION
+                      SELECT ud.user_id, ud.device_id, d.user_agent
+                        FROM user_devices AS ud
+                        LEFT JOIN devices AS d
+                        ON ud.user_id = d.user_id AND ud.device_id = d.device_id
+                    """
 
-    Args:
-        all_users_devices ([tuple(str,str)]): a list of (user_id,device_id) tuples
+    begin = time.time()
+    with CONFIG.get_conn() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                cohort_sql,
+                (tuple(users), int(start)),
+            )
+            res = cursor.fetchall()
+    conn.close()
 
-    Returns:
-        dict[str:set]: maps client type to user_ids
-    """
-    if len(all_users_devices) == 0:
-        return {}
-    filtered_users = {ELECTRON: set(), WEB: set(), IOS: set(), ANDROID: set()}
-
-    for u in all_users_devices:
-        user_id = u[0]
-        user_agent = u[2]
-        client_type = user_agent_to_client(user_agent)
-        if client_type:
-            filtered_users[client_type].add(user_id)
-    return filtered_users
-
-
-def generate_cohorts(start_date, end_date, buckets, period):
-    cohort_date = start_date
-    result = {}
-    logging.info(
-        'cohort date %s end_date %s period %d'
-        % (ts_to_str(cohort_date), ts_to_str(end_date), period)
-    )
-    while cohort_date <= end_date - period:
-        logging.info(
-            'cohort date %s end_date %s period %d'
-            % (ts_to_str(cohort_date), ts_to_str(end_date), period)
-        )
-
-        try:
-            all_users_devices = get_new_users(cohort_date, period)
-        except:
-            logging.error('XXXXXXXX error calling all_user_devices XXXXXXX')
-            time.sleep(300)
-            all_users_devices = get_new_users(cohort_date, period)
-        logging.info('all_users_devices count is %d' % len(all_users_devices))
-        filtered_users = filter_users_by_client(all_users_devices)
-        for client_type, users in filtered_users.items():
-            cohort_scores = [len(users)]
-            cohort_bucket_start = cohort_date + period
-
-            while (
-                cohort_bucket_start < cohort_date + (buckets * period)
-                and cohort_bucket_start <= end_date - period
-            ):
-                logging.info("calling get_cohort_buckets %s" % client_type)
-                try:
-                    user_device_ids = get_cohort_buckets(
-                        users,
-                        cohort_bucket_start,
-                        cohort_bucket_start + period,
-                        client_type)
-                except:
-                    logging.error('error calling get_cohort_buckets')
-                    time.sleep(300)
-                    user_device_ids = get_cohort_buckets(
-                        users,
-                        cohort_bucket_start,
-                        cohort_bucket_start + period,
-                        client_type)
-
-                count = 0
-                users_seen = set()
-
-                # hack to get drop off mxids
-                # if client_type == 'web':
-                #     dropped_off_user = set(users) - set([x[0] for x in user_device_ids])
-                #     logging.info('Cohort date %s bucket %s size %d \n user list %s' % (
-                #         ts_to_str(cohort_date), ts_to_str(cohort_bucket_start), len(dropped_off_user), dropped_off_user)
-                #     )
-                logging.info('user_device_ids is %d' % len(user_device_ids))
-                for u in user_device_ids:
-                    if len(u) != 3:
-                        continue
-                    client = user_agent_to_client(u[2])
-                    if client is client_type and u[0] not in users_seen:
-                        users_seen.add(u[0])
-                        count = count + 1
-                cohort_scores.append(count)
-                cohort_bucket_start = cohort_bucket_start + period
-            cohort_data = result.get(client_type, [])
-            cohort_data.append((ts_to_str(cohort_date), cohort_scores))
-            result[client_type] = cohort_data
-
-        cohort_date = cohort_date + period
-    return result
+    # Running this query on secondary database not tuned for long running queries
+    # this is really heavy handed way of allowing background processes to keep up :/
+    pause = time.time() - begin
+    time.sleep(pause)
+    return res
 
 
-def write_to_mysql(period, all_cohorts):
-    # TODO select db based on period
+def construct_users_and_devices_to_clients_mapping(users_devices_user_agents):
+    users_and_devices_to_clients = {}
+    for (user, device_id, user_agent) in users_devices_user_agents:
+        user_id = user + "+" + device_id
+        client = user_agent_to_client(user_agent)
 
-    # TODO handle updating data where data pre-exists
-    # TABLE_NAME = 'cohorts_weekly'
-    if period == 7:
-        table = 'cohorts_weekly'
-    elif period == 30:
-        table = 'cohorts_monthly'
-    else:
-        logging.error('Unsupported period, must be 7 or 30: %s' % period)
-    # SCHEMA = """
-    # CREATE TABLE IF NOT EXISTS
-    # %s (
-    #     date DATE NOT NULL,
-    #     client VARCHAR(12) NOT NULL,
-    #     b1 INT NOT NULL DEFAULT '0', b2 INT NOT NULL DEFAULT '0',
-    #     b3 INT NOT NULL DEFAULT '0', b4 INT NOT NULL DEFAULT '0',
-    #     b5 INT NOT NULL DEFAULT '0', b6 INT NOT NULL DEFAULT '0',
-    #     b7 INT NOT NULL DEFAULT '0', b8 INT NOT NULL DEFAULT '0',
-    #     b9 INT NOT NULL DEFAULT '0', b10 INT NOT NULL DEFAULT '0',
-    #     b11 INT NOT NULL DEFAULT '0', b12 INT NOT NULL DEFAULT '0'
-    # );
-    # """ % TABLE_NAME
+        if user_id not in users_and_devices_to_clients:
+            users_and_devices_to_clients[user_id] = client
+        else:
+            if client == MISSING:
+                continue
 
+            previous_client = users_and_devices_to_clients[user_id]
+            if previous_client == MISSING:
+                users_and_devices_to_clients[user_id] = client
+            elif previous_client != client:
+                logging.warning(f"{user}/{device_id} changed from "
+                                f"{previous_client} to {client}. Ignoring")
+
+    return users_and_devices_to_clients
+
+
+def map_users_devices_to_clients(users_devices, users_and_devices_to_clients):
+    clients_to_users = {}
+    for (user, device_id) in users_devices:
+        client = users_and_devices_to_clients[user + "+" + device_id]
+        clients_to_users.setdefault(client, set()).add(user)
+
+    counts = Counter()
+    for client, users in clients_to_users.items():
+        counts[client] = len(users)
+    return counts
+
+
+def estimate_client_types(client_types):
+    android_count = client_types.get(ANDROID, 0)
+    electron_count = client_types.get(ELECTRON, 0)
+    ios_count = client_types.get(IOS, 0)
+    other_count = client_types.get(OTHER, 0)
+    web_count = client_types.get(WEB, 0)
+
+    missing_count = client_types.get(MISSING, 0)
+
+    if missing_count > 0:
+        count_known = android_count + electron_count + ios_count + other_count + web_count
+
+        if count_known > 0:
+            android_count = android_count + int((android_count / count_known) * missing_count)
+            electron_count = electron_count + int((electron_count / count_known) * missing_count)
+            ios_count = ios_count + int((ios_count / count_known) * missing_count)
+            web_count = web_count + int((web_count / count_known) * missing_count)
+
+    return Counter({ANDROID: android_count,
+                    ELECTRON: electron_count,
+                    IOS: ios_count,
+                    WEB: web_count})
+
+
+# Grabs the users in a cohort (joined between the 2 dates)
+# Also returns a mapping of user_id+device_id -> client type for any device a user in this cohort has ever used
+def get_cohort_users_and_client_mapping(cohort_start_date, cohort_end_date):
+    logging.info(f"Generating cohort between {ts_to_str(cohort_start_date)} "
+                 f"and {ts_to_str(cohort_end_date)}")
+
+    cohort_users_devices = get_new_users(cohort_start_date, cohort_end_date)
+    logging.info(f"cohort_users_devices count is {len(cohort_users_devices)}")
+
+    cohort_users = set([user_device[0] for user_device in cohort_users_devices])
+    logging.info(f"cohort_users count is {len(cohort_users)}")
+
+    users_devices_user_agents = get_user_agents(cohort_users, cohort_start_date)
+    logging.info(f"users_devices_user_agents count is {len(users_devices_user_agents)}")
+
+    users_and_devices_to_client = construct_users_and_devices_to_clients_mapping(users_devices_user_agents)
+    logging.info(f"users_and_devices_to_client count is {len(users_and_devices_to_client)}")
+
+    return (cohort_users, users_and_devices_to_client)
+
+
+# Given a cohort of users return the count of users who used one of the client types we care about between the 2 provided dates
+# We provide a mapping of user_id+device_id -> client type for all user_id, device_id pairs we've ever seen for this cohort
+# The client type will be MISSING for some user_id, device_id pairs (as user_ips has been reaped)
+# Estimate the proportion of each client type by assuming they're in the same ratio as the present client types
+def get_cohort_clients_bucket(cohort_users, users_and_devices_to_client, bucket_start_date, bucket_end_date):
+    logging.info(f"Getting client counts for cohort of size {len(cohort_users)} active between "
+                 f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}")
+
+    # All user_devices of the above that are still active in cohort_date
+    bucket_users_devices = get_cohort_user_devices_bucket(cohort_users, bucket_start_date, bucket_end_date)
+    logging.info(f"bucket_users_devices count is {len(bucket_users_devices)}")
+
+    bucket_client_types = map_users_devices_to_clients(bucket_users_devices, users_and_devices_to_client)
+    logging.info(f"bucket_client_types={bucket_client_types}")
+
+    estimated_client_types = estimate_client_types(bucket_client_types)
+    logging.info(f"estimated_client_types={estimated_client_types}")
+    return estimated_client_types
+
+
+def generate_by_cohort(cohort_start_date, buckets, period):
+    cohort_end_date = cohort_start_date + period
+
+    now = int(time.time()) * 1000
+    if (now - cohort_start_date) < buckets * period:
+        buckets = int((now - cohort_start_date) / period)
+
+    period_human = period / (24 * 60 * 60 * 1000)
+    logging.info(f"Start Date: {ts_to_str(cohort_start_date)} to {ts_to_str(cohort_end_date)}. "
+                 f"Bucket size {buckets} of {period_human} days")
+
+    cohorts = []
+    cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
+                                                                                    cohort_end_date)
+
+    for bucket in range(buckets):
+        bucket_num = bucket + 1
+        bucket_start_date = cohort_start_date + (bucket * period)
+        bucket_end_date = bucket_start_date + period
+
+        client_types = get_cohort_clients_bucket(cohort_users, users_and_devices_to_client,
+                                                 bucket_start_date, bucket_end_date)
+        cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
+
+    return cohorts
+
+
+def generate_by_bucket(bucket_start_date, buckets, period):
+    bucket_end_date = bucket_start_date + period
+    logging.info(f"Generating cohorts for users active between {ts_to_str(bucket_start_date)}"
+                 f" and {ts_to_str(bucket_end_date)} for {buckets} cohorts")
+
+    cohorts = []
+
+    # If we request n buckets, then the cohort n-1 back will have its n'th bucket at bucket_start_date
+    for bucket in range(buckets):
+        cohort_start_date = bucket_start_date - (bucket * period)
+        cohort_end_date = cohort_start_date + period
+        cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
+                                                                                        cohort_end_date)
+
+        bucket_num = bucket + 1
+        client_types = get_cohort_clients_bucket(cohort_users, users_and_devices_to_client,
+                                                 bucket_start_date, bucket_end_date)
+        cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
+
+    return cohorts
+
+
+def write_to_mysql(table, buckets_stats):
     # Connect to and setup db:
     db = MySQLdb.connect(
-        host='localhost',
-        user='businessmetrics',
-        passwd=CONFIG.MYSQL_PASSWORD,
-        db='businessmetrics',
-        port=3306
+        host=CONFIG.STATS_DB_HOST,
+        user=CONFIG.STATS_DB_USERNAME,
+        passwd=CONFIG.STATS_DB_PASSWORD,
+        db=CONFIG.STATS_DB_DATABASE,
+        port=3306,
+        ssl='ssl'
     )
 
     with db.cursor() as cursor:
-
-        delete_entries = "DELETE FROM " + table
-
-        cursor.execute(delete_entries)
-        db.commit()
-        insert_entries = "INSERT INTO " + table + \
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-
-        for client, cohorts in all_cohorts.items():
-            for cohort in cohorts:
-                date = cohort[0]
-                r = cohort[1]
-
-                while len(r) < 12:
-                    r.append(int(0))
-                # TODO This mings, collapse to single array
-                cursor.execute(
-                    insert_entries,
-                    (
-                        date,
-                        client,
-                        r[0], r[1], r[2], r[3], r[4], r[5],
-                        r[6], r[7], r[8], r[9], r[10], r[11]
-                    )
-                )
+        for cohort_date, bucket_num, client_counts in buckets_stats:
+            for client in [ANDROID, ELECTRON, IOS, WEB]:
+                insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
+                                f"(%s, %s, %s) " \
+                                f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
+                # print(insert_bucket % (cohort_date, client, client_counts[client]))
+                cursor.execute(insert_bucket, (cohort_date, client, client_counts[client]))
         db.commit()
 
 
@@ -364,15 +425,17 @@ CONFIG = Config()
 
 def main():
     args = get_args()
-    start_date, end_date, buckets, period = parse_cohort_parameters(args)
-    period_human = period / (24 * 60 * 60 * 1000)
-    logging.info(
-        "Start Date: %s bucket size %d period %s End Date %s"
-        % (start_date, buckets, period_human, end_date)
-    )
-    res = generate_cohorts(start_date, end_date, buckets, period)
-    logging.info(res)
-    write_to_mysql(period_human, res)
+    mode, date, buckets, period, table = parse_cohort_parameters(args)
+
+    if mode == "cohort":
+        buckets_stats = generate_by_cohort(date, buckets, period)
+    elif mode == "bucket":
+        buckets_stats = generate_by_bucket(date, buckets, period)
+    else:
+        raise ValueError(f"Unexpected mode {mode}")
+
+    logging.info(buckets_stats)
+    write_to_mysql(table, buckets_stats)
 
 
 if __name__ == '__main__':

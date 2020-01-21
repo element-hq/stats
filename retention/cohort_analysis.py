@@ -13,10 +13,11 @@ import os
 # Script to calculate user retention cohorts and output the results,
 # comma separated to stdout
 
-ELECTRON = "electron"
+RIOT_ELECTRON = "electron"
 WEB = "web"
-ANDROID = "android"
-IOS = "ios"
+RIOT_ANDROID = "android"
+RIOTX_ANDROID = "android-riotx"
+RIOT_IOS = "ios"
 MISSING = "missing"
 OTHER = "other"
 
@@ -132,15 +133,17 @@ def user_agent_to_client(user_agent):
         return MISSING
 
     ua = user_agent.lower()
-
-    if "electron" in ua:
-        return ELECTRON
+    if "riot" in ua:
+        if "electron" in ua:
+            return RIOT_ELECTRON
+        elif "android" in ua and "riotx" in ua:
+                return RIOTX_ANDROID
+        elif "android" in ua:
+            return RIOT_ANDROID
+        elif "ios" in ua:
+            return RIOT_IOS
     elif "mozilla" in ua or "gecko" in ua:
         return WEB
-    elif "android" in ua:
-        return ANDROID
-    elif "ios" in ua:
-        return IOS
     elif "synapse" in ua or "okhttp" in ua or "python-requests" in ua:
         # Never consider this for over-writing of any other client type
         return MISSING
@@ -285,27 +288,30 @@ def map_users_devices_to_clients(users_devices, users_and_devices_to_clients):
 
 
 def estimate_client_types(client_types):
-    android_count = client_types.get(ANDROID, 0)
-    electron_count = client_types.get(ELECTRON, 0)
-    ios_count = client_types.get(IOS, 0)
+    riot_android_count = client_types.get(RIOT_ANDROID, 0)
+    riotx_android_count = client_types.get(RIOTX_ANDROID, 0)
+    riot_electron_count = client_types.get(RIOT_ELECTRON, 0)
+    riot_ios_count = client_types.get(RIOT_IOS, 0)
     other_count = client_types.get(OTHER, 0)
     web_count = client_types.get(WEB, 0)
 
     missing_count = client_types.get(MISSING, 0)
 
     if missing_count > 0:
-        count_known = android_count + electron_count + ios_count + other_count + web_count
+        count_known = riot_android_count + riotx_android_count + riot_electron_count + riot_ios_count + other_count + web_count
 
         if count_known > 0:
-            android_count = android_count + int((android_count / count_known) * missing_count)
-            electron_count = electron_count + int((electron_count / count_known) * missing_count)
-            ios_count = ios_count + int((ios_count / count_known) * missing_count)
+            riot_android_count = riot_android_count + int((riot_android_count / count_known) * missing_count)
+            riotx_android_count = riotx_android_count + int((riotx_android_count / count_known) * missing_count)
+            riot_electron_count = riot_electron_count + int((riot_electron_count / count_known) * missing_count)
+            riot_ios_count = riot_ios_count + int((riot_ios_count / count_known) * missing_count)
             web_count = web_count + int((web_count / count_known) * missing_count)
 
-    return Counter({ANDROID: android_count,
-                    ELECTRON: electron_count,
-                    IOS: ios_count,
-                    WEB: web_count})
+    return Counter({RIOT_ANDROID: riot_android_count,
+                    RIOTX_ANDROID: riotx_android_count,
+                    RIOT_ELECTRON: riot_electron_count,
+                    RIOT_IOS: riot_ios_count,
+                    WEB: riot_web_count})
 
 
 # Grabs the users in a cohort (joined between the 2 dates)
@@ -411,7 +417,7 @@ def write_to_mysql(table, buckets_stats):
 
     with db.cursor() as cursor:
         for cohort_date, bucket_num, client_counts in buckets_stats:
-            for client in [ANDROID, ELECTRON, IOS, WEB]:
+            for client in [RIOT_ANDROID, RIOTX_ANDROID, RIOT_ELECTRON, RIOT_IOS, WEB]:
                 insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
                                 f"(%s, %s, %s) " \
                                 f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"

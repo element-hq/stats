@@ -311,7 +311,7 @@ def estimate_client_types(client_types):
                     RIOTX_ANDROID: riotx_android_count,
                     RIOT_ELECTRON: riot_electron_count,
                     RIOT_IOS: riot_ios_count,
-                    WEB: riot_web_count})
+                    WEB: web_count})
 
 
 # Grabs the users in a cohort (joined between the 2 dates)

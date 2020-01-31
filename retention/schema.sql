@@ -1,6 +1,6 @@
 CREATE TABLE `cohorts_daily` (
   `date` date NOT NULL,
-  `client` varchar(12) NOT NULL,
+  `client` varchar(16) NOT NULL,
   `b1` int(11) NOT NULL DEFAULT '0',
   `b2` int(11) NOT NULL DEFAULT '0',
   `b3` int(11) NOT NULL DEFAULT '0',
@@ -18,7 +18,7 @@ CREATE TABLE `cohorts_daily` (
 
 CREATE TABLE `cohorts_weekly` (
   `date` date NOT NULL,
-  `client` varchar(12) NOT NULL,
+  `client` varchar(16) NOT NULL,
   `b1` int(11) NOT NULL DEFAULT '0',
   `b2` int(11) NOT NULL DEFAULT '0',
   `b3` int(11) NOT NULL DEFAULT '0',
@@ -36,7 +36,7 @@ CREATE TABLE `cohorts_weekly` (
 
 CREATE TABLE `cohorts_monthly` (
   `date` date NOT NULL,
-  `client` varchar(12) NOT NULL,
+  `client` varchar(16) NOT NULL,
   `b1` int(11) NOT NULL DEFAULT '0',
   `b2` int(11) NOT NULL DEFAULT '0',
   `b3` int(11) NOT NULL DEFAULT '0',

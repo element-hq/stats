@@ -85,6 +85,12 @@ def get_args():
         help="How many time buckets for each cohort, defaults to 6",
     )
 
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Whether to print out the MySQL statements rather than actually executing them"
+    )
+
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--cohort_start_date",
@@ -125,7 +131,7 @@ def parse_cohort_parameters(args):
     if (date + period) > now:
         raise ValueError(f"{date} is too soon, 0 periods will fit between it and now")
 
-    return mode, date, args.buckets, period, table
+    return mode, date, args.buckets, period, table, args.dry_run
 
 
 def user_agent_to_client(user_agent):
@@ -404,7 +410,21 @@ def generate_by_bucket(bucket_start_date, buckets, period):
     return cohorts
 
 
-def write_to_mysql(table, buckets_stats):
+def write_to_mysql(table, buckets_stats, dry_run):
+    statements_and_values = []
+    for cohort_date, bucket_num, client_counts in buckets_stats:
+        for client in [RIOT_ANDROID, RIOTX_ANDROID, RIOT_ELECTRON, RIOT_IOS, WEB]:
+            insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
+                            f"(%s, %s, %s) " \
+                            f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
+            statements_and_values.append((insert_bucket, cohort_date, client, client_counts[client]))
+
+    if dry_run:
+        logging.info("Would have run the following SQL statements")
+        for insert_string, cohort_date, client, count in statements_and_values:
+            print(insert_string % (cohort_date, client, count))
+        return
+
     # Connect to and setup db:
     db = MySQLdb.connect(
         host=CONFIG.STATS_DB_HOST,
@@ -416,13 +436,8 @@ def write_to_mysql(table, buckets_stats):
     )
 
     with db.cursor() as cursor:
-        for cohort_date, bucket_num, client_counts in buckets_stats:
-            for client in [RIOT_ANDROID, RIOTX_ANDROID, RIOT_ELECTRON, RIOT_IOS, WEB]:
-                insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
-                                f"(%s, %s, %s) " \
-                                f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
-                # print(insert_bucket % (cohort_date, client, client_counts[client]))
-                cursor.execute(insert_bucket, (cohort_date, client, client_counts[client]))
+        for insert_string, cohort_date, client, count in statements_and_values:
+            cursor.execute(insert_string, (cohort_date, client, count))
         db.commit()
 
 
@@ -431,7 +446,7 @@ CONFIG = Config()
 
 def main():
     args = get_args()
-    mode, date, buckets, period, table = parse_cohort_parameters(args)
+    mode, date, buckets, period, table, dry_run = parse_cohort_parameters(args)
 
     if mode == "cohort":
         buckets_stats = generate_by_cohort(date, buckets, period)
@@ -441,7 +456,7 @@ def main():
         raise ValueError(f"Unexpected mode {mode}")
 
     logging.info(buckets_stats)
-    write_to_mysql(table, buckets_stats)
+    write_to_mysql(table, buckets_stats, dry_run)
 
 
 if __name__ == '__main__':

@@ -28,5 +28,6 @@ STATS_DB_DATABASE=stats
 
 To then run the cohort analysis script:
 ```
+docker build -t cohort_analysis .
 docker run -it --env-file .env --network synapse --network-alias cohort-analysis --rm cohort_analysis <ARGS>
 ```

@@ -139,11 +139,11 @@ def user_agent_to_client(user_agent):
         return MISSING
 
     ua = user_agent.lower()
-    if "riot" or "element" in ua:
+    if "riot" in ua or "element" in ua:
         if "electron" in ua:
             return ELEMENT_ELECTRON
         elif "android" in ua and "riotx" in ua:
-                return RIOTX_ANDROID
+            return RIOTX_ANDROID
         elif "android" in ua:
             return ELEMENT_ANDROID
         elif "ios" in ua:

@@ -4,15 +4,20 @@ import time
 import calendar
 import pytz
 
+# WIP utility methods. These are intended for experimentation via the IDLE
+# It is assumed that a port forward to the relevant database is set up on
+# port 5433.
+#
+# Handle with care before using anything in this file in a production setting.
 
 def get_db_conn():
     try:
         conn = connect(
-            dbname="matrix",
-            user="readonly",
-            host="localhost",
+            dbname="",
+            user="",
+            host="",
             password="",
-            options="-c search_path=matrix",
+            options="",
             port=5433
         )
         return conn

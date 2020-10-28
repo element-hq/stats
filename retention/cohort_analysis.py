@@ -175,8 +175,15 @@ def get_new_users(start: int, stop: int) -> Sequence[Tuple[str, str]]:
         A sequence of (user id, device id) pairs.
     """
 
-    # XXX why do we check user_daily_visits here, particularly given we
-    # then ignore the device_id field in the result?
+    # XXX we should drop device_id from the result, given it is unused so we'll just
+    #    end up returning redundant rows for the same user.
+    #
+    # XXX not quite sure why we join against user_daily_visits at all. Possibly to
+    #    filter out users who managed to register, but have never used the account, so
+    #    don't have a device in user_daily_visits? Likewise we appear to exclude users
+    #    who registered on a given day but didn't actually use that account on the first
+    #    day - it's unclear if this is intentional, and if so why.
+
     new_user_sql = """ SELECT DISTINCT users.name, udv.device_id
                         FROM users
                         LEFT JOIN user_daily_visits as udv
@@ -263,7 +270,11 @@ def get_user_agents(
     # to look for useragents that have come from that device.
     #
     # XXX: why do we check both tables? `devices` will only include one user-agent, but
-    # why do we need to check it at all?
+    #    why do we need to check it at all? Possibly because `user_ips` only includes
+    #    28 days's worth of data so we fall back to `devices` as an approximiation for
+    #    earlier traffic (which should only matter when we're trying to back-populate
+    #    very old cohort usage data?)
+    #
     cohort_sql = """WITH user_devices as (
                         SELECT DISTINCT user_id, device_id
                         FROM user_daily_visits

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
-import time
-from psycopg2 import connect
-
-from collections import Counter
 import argparse
 import datetime
 import logging
-import MySQLdb
 import os
+import time
+from collections import Counter
+from typing import (Collection, Dict, Iterable, List, Mapping, Optional,
+                    Sequence, Tuple)
+
+import MySQLdb
+from psycopg2 import connect
 
 # Script to calculate user retention cohorts and output the results,
 # comma separated to stdout
@@ -129,7 +131,7 @@ def parse_cohort_parameters(args):
 
     now = int(time.time()) * 1000
     if (date + period) > now:
-        raise ValueError(f"{date} is too soon, 0 periods will fit between it and now")
+        raise ValueError(f"{date} is too recent, 0 periods will fit between it and now")
 
     return mode, date, args.buckets, period, table, args.dry_run
 
@@ -157,8 +159,31 @@ def user_agent_to_client(user_agent):
     return OTHER
 
 
-# select all users that created an account for a given range
-def get_new_users(start, stop):
+def get_new_users(start: int, stop: int) -> Sequence[Tuple[str, str]]:
+    """Get a list of all users that registered an account during
+    the given timeframe
+
+    Also gets the IDs of any devices that they used during that period.
+
+    Args:
+        start: start of the timeframe to check, inclusive, as ms since the
+            epoch.
+
+        stop: end of the timeframe to check, exclusive, as ms since the
+            epoch.
+    Returns:
+        A sequence of (user id, device id) pairs.
+    """
+
+    # XXX we should drop device_id from the result, given it is unused so we'll just
+    #    end up returning redundant rows for the same user.
+    #
+    # XXX not quite sure why we join against user_daily_visits at all. Possibly to
+    #    filter out users who managed to register, but have never used the account, so
+    #    don't have a device in user_daily_visits? Likewise we appear to exclude users
+    #    who registered on a given day but didn't actually use that account on the first
+    #    day - it's unclear if this is intentional, and if so why.
+
     new_user_sql = """ SELECT DISTINCT users.name, udv.device_id
                         FROM users
                         LEFT JOIN user_daily_visits as udv
@@ -195,7 +220,11 @@ def get_new_users(start, stop):
     return res
 
 
-def get_cohort_user_devices_bucket(users, start, stop):
+def get_cohort_user_devices_bucket(
+    users: Collection[str], start: int, stop: int
+) -> Sequence[Tuple[str, str]]:
+    """Given a list of users, get the device IDs that they used in the given period
+    """
     if len(users) == 0:
         return []
     cohort_sql = """SELECT DISTINCT user_id, device_id
@@ -222,9 +251,30 @@ def get_cohort_user_devices_bucket(users, start, stop):
     return res
 
 
-def get_user_agents(users, start):
+def get_user_agents(
+        users: Collection[str], start: int
+) -> Sequence[Tuple[str, str, Optional[str]]]:
+    """
+    Given a list of user ids, find the user agents of all the devices that they have
+    used to access the server since the given timestamp
+
+    Returns:
+        a list of (user_id, device_id, user_agent) triplets. Note that it may contain
+            duplicates as well as null user agents!
+    """
     if len(users) == 0:
         return []
+
+    # First we fetch a list of devices that the users have used since the given
+    # timestamp, and we then join that to both the `user_ips` and the `devices` tables
+    # to look for useragents that have come from that device.
+    #
+    # XXX: why do we check both tables? `devices` will only include one user-agent, but
+    #    why do we need to check it at all? Possibly because `user_ips` only includes
+    #    28 days's worth of data so we fall back to `devices` as an approximiation for
+    #    earlier traffic (which should only matter when we're trying to back-populate
+    #    very old cohort usage data?)
+    #
     cohort_sql = """WITH user_devices as (
                         SELECT DISTINCT user_id, device_id
                         FROM user_daily_visits
@@ -259,7 +309,17 @@ def get_user_agents(users, start):
     return res
 
 
-def construct_users_and_devices_to_clients_mapping(users_devices_user_agents):
+def construct_users_and_devices_to_clients_mapping(
+        users_devices_user_agents: Iterable[Tuple[str, str, Optional[str]]]
+) -> Dict[str, str]:
+    """Build a map of user_id+device_id to client type
+
+    Args:
+        users_devices_user_agents: A list of (user_id, device_id, user_agent) triplets.
+
+    Returns:
+        A map from `<user_id>+<device_id>` to client type
+    """
     users_and_devices_to_clients = {}
     for (user, device_id, user_agent) in users_devices_user_agents:
         user_id = user + "+" + device_id
@@ -293,7 +353,8 @@ def map_users_devices_to_clients(users_devices, users_and_devices_to_clients):
     return counts
 
 
-def estimate_client_types(client_types):
+def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
+    """Split MISSING clients according to the proportion of known clients"""
     element_android_count = client_types.get(ELEMENT_ANDROID, 0)
     riotx_android_count = client_types.get(RIOTX_ANDROID, 0)
     element_electron_count = client_types.get(ELEMENT_ELECTRON, 0)
@@ -320,9 +381,26 @@ def estimate_client_types(client_types):
                     WEB: web_count})
 
 
-# Grabs the users in a cohort (joined between the 2 dates)
-# Also returns a mapping of user_id+device_id -> client type for any device a user in this cohort has ever used
-def get_cohort_users_and_client_mapping(cohort_start_date, cohort_end_date):
+def get_cohort_users_and_client_mapping(
+        cohort_start_date: int, cohort_end_date: int
+) -> Tuple[Collection[str], Dict[str, str]]:
+    """
+    Get the users that registered an account during the given timeframe, and
+    the names of all the clients they have ever used.
+
+    Args:
+        cohort_start_date: start of the timeframe to check, inclusive, as ms since the
+            epoch.
+
+        cohort_end_date: end of the timeframe to check, exclusive, as ms since the
+            epoch.
+
+    Returns:
+        A pair `(users, clients)` where `users`s is the set of all users that registered
+        in the given timeframe, and `clients` is a map from "user_id+device_id" to
+        client type for all clients ever used by those users.
+    """
+
     logging.info(f"Generating cohort between {ts_to_str(cohort_start_date)} "
                  f"and {ts_to_str(cohort_end_date)}")
 
@@ -341,11 +419,31 @@ def get_cohort_users_and_client_mapping(cohort_start_date, cohort_end_date):
     return (cohort_users, users_and_devices_to_client)
 
 
-# Given a cohort of users return the count of users who used one of the client types we care about between the 2 provided dates
-# We provide a mapping of user_id+device_id -> client type for all user_id, device_id pairs we've ever seen for this cohort
-# The client type will be MISSING for some user_id, device_id pairs (as user_ips has been reaped)
-# Estimate the proportion of each client type by assuming they're in the same ratio as the present client types
-def get_cohort_clients_bucket(cohort_users, users_and_devices_to_client, bucket_start_date, bucket_end_date):
+def get_cohort_clients_bucket(
+        cohort_users: Collection[str],
+        users_and_devices_to_client: Mapping[str, str],
+        bucket_start_date: int,
+        bucket_end_date: int,
+) -> Mapping[str, int]:
+    """Get the count of users who used each client type between the 2 provided dates
+
+    Args:
+        cohort_users: The cohort of users we are interested in
+
+        users_and_devices_to_client: a mapping of user_id+device_id -> client type for
+            all user_id, device_id pairs we've ever seen for this cohort.
+            client type will be MISSING for some user_id, device_id pairs (as user_ips
+            has been reaped)
+
+        bucket_start_date: start of the timeframe to check, inclusive, as ms since the
+            epoch.
+
+        bucket_end_date: end of the timeframe to check, exclusive, as ms since the
+            epoch.
+
+    Returns:
+        Mapping from client type to number of users
+    """
     logging.info(f"Getting client counts for cohort of size {len(cohort_users)} active between "
                  f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}")
 
@@ -388,7 +486,22 @@ def generate_by_cohort(cohort_start_date, buckets, period):
     return cohorts
 
 
-def generate_by_bucket(bucket_start_date, buckets, period):
+def generate_by_bucket(
+        bucket_start_date: int, buckets: int, period: int
+) -> List[Tuple[str, int, Mapping[str, int]]]:
+    """
+    Generate the stats for each user cohort from the usage stats in the given bucket
+
+    Args:
+        bucket_start_date: start time of usage bucket to inspect (ms since the epoch,
+           inclusive)
+        buckets: number of user cohorts to update
+        period: duration of each cohort/bucket (ms)
+
+    Returns:
+        For each cohort:
+          (start date for the cohort, bucket number for the cohort, client type->count map)
+    """
     bucket_end_date = bucket_start_date + period
     logging.info(f"Generating cohorts for users active between {ts_to_str(bucket_start_date)}"
                  f" and {ts_to_str(bucket_end_date)} for {buckets} cohorts")

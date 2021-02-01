@@ -1,7 +1,5 @@
 __pycache__
 include
-db_stats/venv
-github_stats/venv
-retention/venv
 .swp
-*/.env
+.env/
+venv/

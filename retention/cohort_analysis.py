@@ -159,11 +159,9 @@ def user_agent_to_client(user_agent):
     return OTHER
 
 
-def get_new_users(start: int, stop: int) -> Sequence[Tuple[str, str]]:
+def get_new_users(start: int, stop: int) -> Sequence[str]:
     """Get a list of all users that registered an account during
     the given timeframe
-
-    Also gets the IDs of any devices that they used during that period.
 
     Args:
         start: start of the timeframe to check, inclusive, as ms since the
@@ -172,21 +170,18 @@ def get_new_users(start: int, stop: int) -> Sequence[Tuple[str, str]]:
         stop: end of the timeframe to check, exclusive, as ms since the
             epoch.
     Returns:
-        A sequence of (user id, device id) pairs.
+        A list of distinct user_ids
     """
 
-    # XXX we should drop device_id from the result, given it is unused so we'll just
-    #    end up returning redundant rows for the same user.
-    #
     # XXX not quite sure why we join against user_daily_visits at all. Possibly to
     #    filter out users who managed to register, but have never used the account, so
     #    don't have a device in user_daily_visits? Likewise we appear to exclude users
     #    who registered on a given day but didn't actually use that account on the first
     #    day - it's unclear if this is intentional, and if so why.
 
-    new_user_sql = """ SELECT DISTINCT users.name, udv.device_id
+    new_user_sql = """ SELECT DISTINCT users.name
                         FROM users
-                        LEFT JOIN user_daily_visits as udv
+                        JOIN user_daily_visits as udv
                         ON users.name = udv.user_id
                         WHERE appservice_id is NULL
                         AND is_guest = 0
@@ -194,7 +189,6 @@ def get_new_users(start: int, stop: int) -> Sequence[Tuple[str, str]]:
                         AND udv.timestamp >= %(start_date)s
                         AND creation_ts < %(end_date_seconds)s
                         AND udv.timestamp < %(end_date)s
-                        AND udv.device_id IS NOT NULL
                     """
 
     begin = time.time()
@@ -210,7 +204,7 @@ def get_new_users(start: int, stop: int) -> Sequence[Tuple[str, str]]:
                 },
             )
             # print('row count is %d' % cursor.rowcount)
-            res = cursor.fetchall()
+            res = [row[0] for row in cursor]
     conn.close()
 
     # Running this query on secondary database not tuned for long running queries
@@ -404,10 +398,7 @@ def get_cohort_users_and_client_mapping(
     logging.info(f"Generating cohort between {ts_to_str(cohort_start_date)} "
                  f"and {ts_to_str(cohort_end_date)}")
 
-    cohort_users_devices = get_new_users(cohort_start_date, cohort_end_date)
-    logging.info(f"cohort_users_devices count is {len(cohort_users_devices)}")
-
-    cohort_users = set([user_device[0] for user_device in cohort_users_devices])
+    cohort_users = get_new_users(cohort_start_date, cohort_end_date)
     logging.info(f"cohort_users count is {len(cohort_users)}")
 
     users_devices_user_agents = get_user_agents(cohort_users, cohort_start_date)

@@ -43,6 +43,7 @@ class Config:
         conn = connect(
             dbname=self.SYNAPSE_DB_DATABASE,
             user=self.SYNAPSE_DB_USERNAME,
+            port=os.environ.get("SYNAPSE_DB_PORT"),
             password=self.SYNAPSE_DB_PASSWORD,
             host=self.SYNAPSE_DB_HOST,
             options=self.SYNAPSE_DB_OPTIONS,

@@ -335,8 +335,10 @@ def construct_users_and_devices_to_clients_mapping(
             if previous_client == MISSING:
                 users_and_devices_to_clients[user_id] = client
             elif previous_client != client:
-                logging.warning(f"{user}/{device_id} changed from "
-                                f"{previous_client} to {client}. Ignoring")
+                logging.warning(
+                    f"{user}/{device_id} used both {previous_client!r} and {client!r} "
+                    f"in the window. Ignoring {client!r}"
+                )
 
     return users_and_devices_to_clients
 

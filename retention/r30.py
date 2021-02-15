@@ -10,7 +10,7 @@ import psycopg2
 
 CLIENTS = ["android", "android-riotx", "electron", "ios", "missing", "other", "web"]
 
-# Client data collection began on 2020-12-16
+# Client data collection began on 2020-10-16
 # Must wait 60 days until sufficient historic data exists for client retention
 CLIENT_THRESHOLD_DATE = datetime.date(2020, 12, 15)
 

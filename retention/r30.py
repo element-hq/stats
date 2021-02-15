@@ -113,7 +113,10 @@ def get_r30(conn, date):
             return curs.fetchone()[0]
 
 
-def get_r30_by_client(conn, date):
+def get_r30_by_client(conn, date, force=False):
+    if date < CLIENT_THRESHOLD_DATE and not force:
+        return {}
+
     with conn:
         with conn.cursor() as curs:
             curs.execute(R30_CLIENT_SQL, {"date": date})
@@ -167,6 +170,10 @@ def main():
         help="end date (default: today)",
     )
 
+    parser.add_argument(
+        "--no-useragent", action="store_true", help="do not report useragent data"
+    )
+
     args = parser.parse_args()
 
     if args.since >= datetime.date.today():
@@ -188,10 +195,12 @@ def main():
 
     conn.set_session(readonly=True, autocommit=True)
 
-    include_clients = args.until > CLIENT_THRESHOLD_DATE
+    if args.no_useragent:
+        include_clients = False
+    else:
+        include_clients = args.until > CLIENT_THRESHOLD_DATE
 
     fieldnames = ["date", "r30"]
-
     if include_clients:
         fieldnames.extend(sorted(CLIENTS))
 
@@ -202,7 +211,11 @@ def main():
         date = datetime.date.fromordinal(day)
 
         r30 = get_r30(conn, date)
-        client_r30 = get_r30_by_client(conn, date) if include_clients else {}
+
+        if include_clients and date > CLIENT_THRESHOLD_DATE:
+            client_r30 = get_r30_by_client(conn, date)
+        else:
+            client_r30 = {}
 
         writer.writerow(dict(date=date, r30=r30, **client_r30))
 

@@ -174,6 +174,10 @@ def main():
         "--no-useragent", action="store_true", help="do not report useragent data"
     )
 
+    parser.add_argument(
+        "--upload", action="store_true", help="commit data to businessmetrics database"
+    )
+
     args = parser.parse_args()
 
     if args.since >= datetime.date.today():
@@ -184,6 +188,12 @@ def main():
 
     if (args.until - args.since).days < 1:
         parser.error(f"invalid date range: since {args.since} until {args.until}")
+
+    if args.upload:
+        parser.error("uploading statistics is not yet supported")
+
+    if args.upload and not args.no_useragent:
+        parser.error("uploading useragent statistics is not yet supported")
 
     conn = psycopg2.connect(
         dbname=os.environ.get("SYNAPSE_DB_DATABASE", "matrix"),

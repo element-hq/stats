@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import csv
 import datetime
 import os
@@ -121,7 +120,64 @@ def get_r30_by_client(conn, date):
             return dict(curs.fetchall())
 
 
+def date_or_duration(s: str):
+    "Convert ISO dates or '{int}d' strings to a datetime.date"
+    if s.lower() == "today":
+        return datetime.date.today()
+    elif s.endswith("d"):
+        days = int(s[:-1])
+        delta = datetime.timedelta(days=days)
+        return datetime.date.today() - delta
+    else:
+        return datetime.date.fromisoformat(s)
+
+
 def main():
+    import argparse
+    import textwrap
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawTextHelpFormatter,
+        description="calculate revised 30 day retention stats",
+        epilog=textwrap.dedent(
+            """
+            DATE values accept several forms:
+              1. ISO 8601 dates ("2021-02-28")
+              2. A number of days in the past ("14d")
+              3. The literal value "today"
+            """
+        ),
+    )
+
+    parser.add_argument(
+        "-s",
+        "--since",
+        default="7d",
+        type=date_or_duration,
+        metavar="DATE",
+        help="start date (default: %(default)s)",
+    )
+
+    parser.add_argument(
+        "-u",
+        "--until",
+        default=datetime.date.today(),
+        type=date_or_duration,
+        metavar="DATE",
+        help="end date (default: today)",
+    )
+
+    args = parser.parse_args()
+
+    if args.since >= datetime.date.today():
+        parser.error(f"argument -s/--since: must be before today: {args.until}")
+
+    if args.until > datetime.date.today():
+        parser.error(f"argument -u/--until: must not be in the future: {args.until}")
+
+    if (args.until - args.since).days < 1:
+        parser.error(f"invalid date range: since {args.since} until {args.until}")
+
     conn = psycopg2.connect(
         dbname=os.environ.get("SYNAPSE_DB_DATABASE", "matrix"),
         user=os.environ.get("SYNAPSE_DB_USERNAME", None),
@@ -132,10 +188,7 @@ def main():
 
     conn.set_session(readonly=True, autocommit=True)
 
-    end = datetime.date.today()
-    start = end - datetime.timedelta(days=7 + 1)
-
-    include_clients = end > CLIENT_THRESHOLD_DATE
+    include_clients = args.until > CLIENT_THRESHOLD_DATE
 
     fieldnames = ["date", "r30"]
 
@@ -145,7 +198,7 @@ def main():
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
 
-    for day in range(start.toordinal(), end.toordinal()):
+    for day in range(args.since.toordinal(), args.until.toordinal()):
         date = datetime.date.fromordinal(day)
 
         r30 = get_r30(conn, date)

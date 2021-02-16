@@ -23,7 +23,8 @@ ELEMENT_IOS = "ios"
 MISSING = "missing"
 OTHER = "other"
 
-ONE_DAY = 86400000
+MS_PER_DAY = 24 * 60 * 60 * 1000
+
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
 
@@ -77,34 +78,45 @@ def get_args():
         type=int,
         choices=[1, 7, 30],
         default=7,
-        help="Period over which cohorts / buckets are calculated, measured in days. Defaults to 7",
+        help="""
+            Period over which cohorts and buckets are calculated, in days. Defaults to
+            %(default)s.
+            """,
     )
     ap.add_argument(
         "-b",
         "--buckets",
         type=int,
         default=6,
-        help="How many time buckets for each cohort, defaults to 6",
+        help="Number of buckets/cohorts to analyze. Defaults to %(default)s.",
     )
 
     ap.add_argument(
         "--dry-run",
         action="store_true",
-        help="Whether to print out the MySQL statements rather than actually executing them"
+        help="Whether to print out the MySQL statements rather than actually executing them."
     )
 
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--cohort_start_date",
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
-        help="Beginning of first cohort in the form %Y-%m-%d. "
-             "Will generate all buckets in this cohort")
+        help="""
+            Enable cohort mode. In this mode, a single cohort of PERIOD days is tracked
+            through BUCKETS activity buckets, each of PERIOD days. Option gives the
+            first day of the cohort to be tracked.
+            """,
+    )
 
     group.add_argument(
         "--bucket_start_date",
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
-        help="Beginning of a bucket in the form %Y-%m-%d. "
-             "Will generate all buckets that have this bucket start date")
+        help="""
+            Enable bucket mode. In this mode, a single activity bucket of PERIOD days
+            is analyzed for activity from each of BUCKETS cohorts of PERIOD days.
+            Option gives the first day of the bucket to be analysed.
+            """,
+    )
 
     return ap.parse_args()
 
@@ -127,7 +139,7 @@ def parse_cohort_parameters(args):
         table = 'cohorts_monthly'
     else:
         raise ValueError(f"Unexpected period {period}")
-    period = int(period) * 24 * 60 * 60 * 1000
+    period = int(period) * MS_PER_DAY
 
     now = int(time.time()) * 1000
     if (date + period) > now:
@@ -343,12 +355,23 @@ def construct_users_and_devices_to_clients_mapping(
     return users_and_devices_to_clients
 
 
-def map_users_devices_to_clients(users_devices, users_and_devices_to_clients):
+def map_users_devices_to_clients(
+    users_devices: Iterable[Tuple[str, str]], users_and_devices_to_clients: Mapping[str, str]
+) -> Mapping[str, int]:
+    """given a list of users and devices, calculate the number of users on each client
+
+    Note that if a given user uses two different clients, that one user will be counted
+    under both clients. That means that totalling retention stats across clients isn't
+    statistically correct.
+    """
+
+    # first build a list of users for each client, to deduplicate users
     clients_to_users = {}
     for (user, device_id) in users_devices:
         client = users_and_devices_to_clients[user + "+" + device_id]
         clients_to_users.setdefault(client, set()).add(user)
 
+    # then convert to a count of users per client
     counts = Counter()
     for client, users in clients_to_users.items():
         counts[client] = len(users)
@@ -403,8 +426,11 @@ def get_cohort_users_and_client_mapping(
         client type for all clients ever used by those users.
     """
 
-    logging.info(f"Generating cohort between {ts_to_str(cohort_start_date)} "
-                 f"and {ts_to_str(cohort_end_date)}")
+    logging.info(
+        f"Generating cohort between {ts_to_str(cohort_start_date)} "
+        f"({cohort_start_date}) and {ts_to_str(cohort_end_date)} "
+        f"({cohort_end_date})"
+    )
 
     cohort_users_devices = get_new_users(cohort_start_date, cohort_end_date)
     logging.info(f"cohort_users_devices count is {len(cohort_users_devices)}")
@@ -468,9 +494,11 @@ def generate_by_cohort(cohort_start_date, buckets, period):
     if (now - cohort_start_date) < buckets * period:
         buckets = int((now - cohort_start_date) / period)
 
-    period_human = period / (24 * 60 * 60 * 1000)
-    logging.info(f"Start Date: {ts_to_str(cohort_start_date)} to {ts_to_str(cohort_end_date)}. "
-                 f"Bucket size {buckets} of {period_human} days")
+    logging.info(
+        f"Tracking cohort of {ts_to_str(cohort_start_date)} to "
+        f"{ts_to_str(cohort_end_date)}, for {buckets} activity buckets each of "
+        f"{period / MS_PER_DAY} days."
+    )
 
     cohorts = []
     cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
@@ -505,8 +533,11 @@ def generate_by_bucket(
           (start date for the cohort, bucket number for the cohort, client type->count map)
     """
     bucket_end_date = bucket_start_date + period
-    logging.info(f"Generating cohorts for users active between {ts_to_str(bucket_start_date)}"
-                 f" and {ts_to_str(bucket_end_date)} for {buckets} cohorts")
+    logging.info(
+        f"Updating usage stats for each of {buckets} cohorts of "
+        f"{period / MS_PER_DAY} days, for activity between "
+        f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}"
+    )
 
     cohorts = []
 

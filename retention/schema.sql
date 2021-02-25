@@ -50,4 +50,24 @@ CREATE TABLE `cohorts_monthly` (
   `b11` int(11) NOT NULL DEFAULT '0',
   `b12` int(11) NOT NULL DEFAULT '0',
   UNIQUE KEY `client_date` (`client`,`date`)
-) ENGINE=InnoDB
+) ENGINE=InnoDB;
+
+
+-- add an `sso_idp` column to each of the cohort tables, so that we can break down
+-- retention by IDP. In order function correctly as part of a unique key, it needs to
+-- be non-nullable, since mysql treats (null = null) as false.
+
+ALTER TABLE `cohorts_daily`
+   ADD COLUMN `sso_idp` varchar(16) NOT NULL DEFAULT '',
+   ADD UNIQUE KEY `client_idp_date` (`client`,`sso_idp`, `date`),
+   DROP KEY `client_date`;
+
+ALTER TABLE `cohorts_weekly`
+   ADD COLUMN `sso_idp` varchar(16) NOT NULL DEFAULT '',
+   ADD UNIQUE KEY `client_idp_date` (`client`,`sso_idp`, `date`),
+   DROP KEY `client_date`;
+
+ALTER TABLE `cohorts_monthly`
+   ADD COLUMN `sso_idp` varchar(16) NOT NULL DEFAULT '',
+   ADD UNIQUE KEY `client_idp_date` (`client`,`sso_idp`, `date`),
+   DROP KEY `client_date`;

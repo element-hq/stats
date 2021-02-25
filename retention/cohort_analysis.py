@@ -6,8 +6,8 @@ import logging
 import os
 import time
 from collections import Counter, defaultdict
-from typing import (Collection, Dict, Iterable, Mapping, Optional, Sequence,
-                    Set, Tuple)
+from typing import (Collection, Dict, Iterable, List, Mapping, Optional,
+                    Sequence, Set, Tuple)
 
 import attr
 
@@ -178,6 +178,9 @@ class User:
     """Information about a specific user in the cohort"""
     user_id = attr.ib(type=str)
 
+    # a list of the SSO auth_providers that this user can use
+    auth_providers = attr.ib(type=Collection[str])
+
 
 def get_new_users(start: int, stop: int) -> Sequence[User]:
     """Get a list of all users that registered an account during
@@ -194,12 +197,17 @@ def get_new_users(start: int, stop: int) -> Sequence[User]:
     """
 
     new_user_sql = """
-        SELECT users.name FROM users
+        SELECT users.name, uei.auth_provider
+        FROM users
+        LEFT JOIN user_external_ids AS uei ON uei.user_id=users.name
         WHERE appservice_id is NULL
             AND is_guest = 0
             AND creation_ts >= %(start_date_seconds)s
             AND creation_ts < %(end_date_seconds)s
         """
+
+    # for each user_id, a list of auth providers
+    users = defaultdict(list)  # type: Dict[str, List[str]]
 
     begin = time.time()
     with CONFIG.get_conn() as conn:
@@ -211,15 +219,17 @@ def get_new_users(start: int, stop: int) -> Sequence[User]:
                     "end_date_seconds": stop / 1000,
                 },
             )
-            # print('row count is %d' % cursor.rowcount)
-            res = [User(row[0]) for row in cursor]
+            for user, ap in cursor:
+                aps = users[user]
+                if ap:
+                    aps.append(ap)
     conn.close()
 
     # Running this query on secondary database not tuned for long running queries
     # this is really heavy handed way of allowing background processes to keep up :/
     pause = time.time() - begin
     time.sleep(pause)
-    return res
+    return [User(user_id, aps) for user_id, aps in users.items()]
 
 
 def get_bucket_devices_by_user(
@@ -425,6 +435,9 @@ class CohortKey:
     # one of ELEMENT_ANDROID, WEB, etc
     client_type = attr.ib(type=str)
 
+    # the SSO identity provider
+    sso_idp = attr.ib(type=str)
+
 
 def get_cohort_clients_bucket(
     cohort_users: Collection[User],
@@ -463,29 +476,35 @@ def get_cohort_clients_bucket(
     )
 
     # build a list of users for each client, to deduplicate users
-    clients_to_users = {}  # type: Dict[str, Set[str]]
+    # map from client to a set of (user_id, sso_idp) pairs
+    clients_to_users = {}  # type: Dict[str, Set[Tuple[str, str]]]
     for user in cohort_users:
+        # the user might have registered with more than one SSO IdP; if so, we just
+        # pick the first one.
+        sso_idp = user.auth_providers[0] if user.auth_providers else ''
+
         for device_id in bucket_user_device_map.get(user.user_id, []):
             client = users_and_devices_to_client[user.user_id + "+" + device_id]
-            clients_to_users.setdefault(client, set()).add(user.user_id)
+            clients_to_users.setdefault(client, set()).add((user.user_id, sso_idp))
 
-    # then convert to a count of users per client.
+    # Now, for each SSO IdP, build a count of users per client.
     #
     # Note that if a given user uses two different clients, that one user will be
     # counted under both clients. That means that totalling retention stats across
     # clients isn't statistically correct.
 
-    bucket_client_types = Counter()
+    # sso_idp -> client -> count
+    sso_bucket_client_types = defaultdict(Counter)   # type: Mapping[str, Counter]
+
     for client, users in clients_to_users.items():
-        bucket_client_types[client] = len(users)
-    logging.info(f"bucket_client_types={bucket_client_types}")
+        for user_id, sso_idp in users:
+            sso_bucket_client_types[sso_idp][client] += 1
+    logging.info(f"bucket_client_types={sso_bucket_client_types}")
 
-    estimated_client_types = estimate_client_types(bucket_client_types)
-    logging.info(f"estimated_client_types={estimated_client_types}")
-
-    for client, count in estimated_client_types.items():
-        cohort_key = CohortKey(ts_to_str(cohort_start_date), client)
-        yield cohort_key, count
+    for sso_idp, client_types in sso_bucket_client_types.items():
+        for client, count in estimate_client_types(client_types).items():
+            cohort_key = CohortKey(ts_to_str(cohort_start_date), client, sso_idp)
+            yield cohort_key, count
 
 
 # the result type of the generate methods.
@@ -584,17 +603,24 @@ def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):
     statements_and_values = []
 
     for cohort_key, bucket_num, count in buckets_stats:
-        insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
-                        f"(%s, %s, %s) " \
-                        f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
-        statements_and_values.append(
-            (insert_bucket, cohort_key.cohort_start_date, cohort_key.client_type, count)
-        )
+        insert_bucket = f"""\
+            INSERT INTO {table} (date, client, sso_idp, b{bucket_num})
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num})
+        """
+        statements_and_values.append((
+            insert_bucket, (
+                cohort_key.cohort_start_date,
+                cohort_key.client_type,
+                cohort_key.sso_idp,
+                count
+            )
+        ))
 
     if dry_run:
         logging.info("Would have run the following SQL statements")
-        for insert_string, cohort_date, client, count in statements_and_values:
-            print(insert_string % (cohort_date, client, count))
+        for insert_string, values in statements_and_values:
+            print(insert_string % values)
         return
 
     # Connect to and setup db:
@@ -608,8 +634,8 @@ def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):
     )
 
     with db.cursor() as cursor:
-        for insert_string, cohort_date, client, count in statements_and_values:
-            cursor.execute(insert_string, (cohort_date, client, count))
+        for insert_string, values in statements_and_values:
+            cursor.execute(insert_string, values)
         db.commit()
 
 

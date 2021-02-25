@@ -418,7 +418,7 @@ def get_cohort_users_and_client_mapping(
 
 
 def get_cohort_clients_bucket(
-        cohort_users: Collection[str],
+        cohort_users: Collection[User],
         users_and_devices_to_client: Mapping[str, str],
         bucket_start_date: int,
         bucket_end_date: int,
@@ -447,15 +447,15 @@ def get_cohort_clients_bucket(
 
     # Get a map of the device ids that were active for each user during the usage bucket
     bucket_user_device_map = get_bucket_devices_by_user(
-        cohort_users, bucket_start_date, bucket_end_date
+        tuple(u.user_id for u in cohort_users), bucket_start_date, bucket_end_date
     )
 
     # build a list of users for each client, to deduplicate users
     clients_to_users = {}  # type: Dict[str, Set[str]]
     for user in cohort_users:
-        for device_id in bucket_user_device_map.get(user, []):
-            client = users_and_devices_to_client[user + "+" + device_id]
-            clients_to_users.setdefault(client, set()).add(user)
+        for device_id in bucket_user_device_map.get(user.user_id, []):
+            client = users_and_devices_to_client[user.user_id + "+" + device_id]
+            clients_to_users.setdefault(client, set()).add(user.user_id)
 
     # then convert to a count of users per client.
     #
@@ -496,7 +496,7 @@ def generate_by_cohort(cohort_start_date, buckets, period):
         bucket_end_date = bucket_start_date + period
 
         client_types = get_cohort_clients_bucket(
-            tuple(u.user_id for u in cohort_users),
+            cohort_users,
             users_and_devices_to_client,
             bucket_start_date,
             bucket_end_date,
@@ -540,7 +540,7 @@ def generate_by_bucket(
 
         bucket_num = bucket + 1
         client_types = get_cohort_clients_bucket(
-            tuple(u.user_id for u in cohort_users),
+            cohort_users,
             users_and_devices_to_client,
             bucket_start_date,
             bucket_end_date,

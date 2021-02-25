@@ -427,15 +427,18 @@ class CohortKey:
 
 
 def get_cohort_clients_bucket(
-        cohort_users: Collection[User],
-        users_and_devices_to_client: Mapping[str, str],
-        bucket_start_date: int,
-        bucket_end_date: int,
-) -> Mapping[str, int]:
+    cohort_users: Collection[User],
+    cohort_start_date: int,
+    users_and_devices_to_client: Mapping[str, str],
+    bucket_start_date: int,
+    bucket_end_date: int,
+) -> Iterable[Tuple[CohortKey, int]]:
     """Get the count of users who used each client type between the 2 provided dates
 
     Args:
         cohort_users: The cohort of users we are interested in
+
+        cohort_start_date: the start date of the user cohort
 
         users_and_devices_to_client: a mapping of user_id+device_id -> client type for
             all user_id, device_id pairs we've ever seen for this cohort.
@@ -449,7 +452,7 @@ def get_cohort_clients_bucket(
             epoch.
 
     Returns:
-        Mapping from client type to number of users
+        A series of (cohort key, count) rows
     """
     logging.info(f"Getting client counts for cohort of size {len(cohort_users)} active between "
                  f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}")
@@ -479,7 +482,10 @@ def get_cohort_clients_bucket(
 
     estimated_client_types = estimate_client_types(bucket_client_types)
     logging.info(f"estimated_client_types={estimated_client_types}")
-    return estimated_client_types
+
+    for client, count in estimated_client_types.items():
+        cohort_key = CohortKey(ts_to_str(cohort_start_date), client)
+        yield cohort_key, count
 
 
 # the result type of the generate methods.
@@ -523,13 +529,13 @@ def generate_by_cohort(
 
         client_types = get_cohort_clients_bucket(
             cohort_users,
+            cohort_start_date,
             users_and_devices_to_client,
             bucket_start_date,
             bucket_end_date,
         )
 
-        for client, count in client_types.items():
-            cohort_key = CohortKey(ts_to_str(cohort_start_date), client)
+        for cohort_key, count in client_types:
             yield cohort_key, bucket_num, count
 
 
@@ -565,12 +571,12 @@ def generate_by_bucket(
         bucket_num = bucket + 1
         client_types = get_cohort_clients_bucket(
             cohort_users,
+            cohort_start_date,
             users_and_devices_to_client,
             bucket_start_date,
             bucket_end_date,
         )
-        for client, count in client_types.items():
-            cohort_key = CohortKey(ts_to_str(cohort_start_date), client)
+        for cohort_key, count in client_types:
             yield cohort_key, bucket_num, count
 
 

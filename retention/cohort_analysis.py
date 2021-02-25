@@ -5,9 +5,9 @@ import datetime
 import logging
 import os
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import (Collection, Dict, Iterable, List, Mapping, Optional,
-                    Sequence, Tuple)
+                    Sequence, Set, Tuple)
 
 import MySQLdb
 from psycopg2 import connect
@@ -214,13 +214,14 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
     return res
 
 
-def get_cohort_user_devices_bucket(
+def get_bucket_devices_by_user(
     users: Collection[str], start: int, stop: int
-) -> Sequence[Tuple[str, str]]:
+) -> Dict[str, Collection[str]]:
     """Given a list of users, get the device IDs that they used in the given period
     """
     if len(users) == 0:
-        return []
+        return {}
+
     cohort_sql = """SELECT DISTINCT user_id, device_id
                         FROM user_daily_visits
                         WHERE user_id IN %s
@@ -228,6 +229,7 @@ def get_cohort_user_devices_bucket(
                         AND device_id IS NOT NULL
                     """
 
+    res = defaultdict(list)
     begin = time.time()
     with CONFIG.get_conn() as conn:
         with conn.cursor() as cursor:
@@ -235,7 +237,8 @@ def get_cohort_user_devices_bucket(
                 cohort_sql,
                 (tuple(users), int(start), int(stop)),
             )
-            res = cursor.fetchall()
+            for user_id, device_id in cursor:
+                res[user_id].append(device_id)
     conn.close()
 
     # Running this query on secondary database not tuned for long running queries
@@ -431,15 +434,17 @@ def get_cohort_clients_bucket(
     logging.info(f"Getting client counts for cohort of size {len(cohort_users)} active between "
                  f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}")
 
-    # All user_devices of the above that are still active in cohort_date
-    bucket_users_devices = get_cohort_user_devices_bucket(cohort_users, bucket_start_date, bucket_end_date)
-    logging.info(f"bucket_users_devices count is {len(bucket_users_devices)}")
+    # Get a map of the device ids that were active for each user during the usage bucket
+    bucket_user_device_map = get_bucket_devices_by_user(
+        cohort_users, bucket_start_date, bucket_end_date
+    )
 
     # build a list of users for each client, to deduplicate users
-    clients_to_users = {}
-    for (user, device_id) in bucket_users_devices:
-        client = users_and_devices_to_client[user + "+" + device_id]
-        clients_to_users.setdefault(client, set()).add(user)
+    clients_to_users = {}  # type: Dict[str, Set[str]]
+    for user in cohort_users:
+        for device_id in bucket_user_device_map.get(user, []):
+            client = users_and_devices_to_client[user + "+" + device_id]
+            clients_to_users.setdefault(client, set()).add(user)
 
     # then convert to a count of users per client.
     #

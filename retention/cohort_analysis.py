@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 from typing import (Collection, Dict, Iterable, List, Mapping, Optional,
                     Sequence, Set, Tuple)
 
+import attr
+
 import MySQLdb
 from psycopg2 import connect
 
@@ -171,7 +173,13 @@ def user_agent_to_client(user_agent):
     return OTHER
 
 
-def get_new_users(start: int, stop: int) -> Sequence[str]:
+@attr.s(frozen=True, slots=True)
+class User:
+    """Information about a specific user in the cohort"""
+    user_id = attr.ib(type=str)
+
+
+def get_new_users(start: int, stop: int) -> Sequence[User]:
     """Get a list of all users that registered an account during
     the given timeframe
 
@@ -182,7 +190,7 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
         stop: end of the timeframe to check, exclusive, as ms since the
             epoch.
     Returns:
-        A list of distinct user_ids
+        A list of distinct users
     """
 
     new_user_sql = """
@@ -204,7 +212,7 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
                 },
             )
             # print('row count is %d' % cursor.rowcount)
-            res = [row[0] for row in cursor]
+            res = [User(row[0]) for row in cursor]
     conn.close()
 
     # Running this query on secondary database not tuned for long running queries
@@ -370,7 +378,7 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
 
 def get_cohort_users_and_client_mapping(
         cohort_start_date: int, cohort_end_date: int
-) -> Tuple[Collection[str], Dict[str, str]]:
+) -> Tuple[Collection[User], Dict[str, str]]:
     """
     Get the users that registered an account during the given timeframe, and
     the names of all the clients they have ever used.
@@ -395,9 +403,12 @@ def get_cohort_users_and_client_mapping(
     )
 
     cohort_users = get_new_users(cohort_start_date, cohort_end_date)
-    logging.info(f"cohort_users count is {len(cohort_users)}")
+    logging.info(f"Found {len(cohort_users)} users in the cohort")
 
-    users_devices_user_agents = get_user_agents(cohort_users, cohort_start_date)
+    users_devices_user_agents = get_user_agents(
+        tuple(u.user_id for u in cohort_users),
+        cohort_start_date,
+    )
     logging.info(f"users_devices_user_agents count is {len(users_devices_user_agents)}")
 
     users_and_devices_to_client = construct_users_and_devices_to_clients_mapping(users_devices_user_agents)
@@ -484,8 +495,12 @@ def generate_by_cohort(cohort_start_date, buckets, period):
         bucket_start_date = cohort_start_date + (bucket * period)
         bucket_end_date = bucket_start_date + period
 
-        client_types = get_cohort_clients_bucket(cohort_users, users_and_devices_to_client,
-                                                 bucket_start_date, bucket_end_date)
+        client_types = get_cohort_clients_bucket(
+            tuple(u.user_id for u in cohort_users),
+            users_and_devices_to_client,
+            bucket_start_date,
+            bucket_end_date,
+        )
         cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
 
     return cohorts
@@ -524,8 +539,12 @@ def generate_by_bucket(
                                                                                         cohort_end_date)
 
         bucket_num = bucket + 1
-        client_types = get_cohort_clients_bucket(cohort_users, users_and_devices_to_client,
-                                                 bucket_start_date, bucket_end_date)
+        client_types = get_cohort_clients_bucket(
+            tuple(u.user_id for u in cohort_users),
+            users_and_devices_to_client,
+            bucket_start_date,
+            bucket_end_date,
+        )
         cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
 
     return cohorts

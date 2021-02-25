@@ -173,23 +173,13 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
         A list of distinct user_ids
     """
 
-    # XXX not quite sure why we join against user_daily_visits at all. Possibly to
-    #    filter out users who managed to register, but have never used the account, so
-    #    don't have a device in user_daily_visits? Likewise we appear to exclude users
-    #    who registered on a given day but didn't actually use that account on the first
-    #    day - it's unclear if this is intentional, and if so why.
-
-    new_user_sql = """ SELECT DISTINCT users.name
-                        FROM users
-                        JOIN user_daily_visits as udv
-                        ON users.name = udv.user_id
-                        WHERE appservice_id is NULL
-                        AND is_guest = 0
-                        AND creation_ts >= %(start_date_seconds)s
-                        AND udv.timestamp >= %(start_date)s
-                        AND creation_ts < %(end_date_seconds)s
-                        AND udv.timestamp < %(end_date)s
-                    """
+    new_user_sql = """
+        SELECT users.name FROM users
+        WHERE appservice_id is NULL
+            AND is_guest = 0
+            AND creation_ts >= %(start_date_seconds)s
+            AND creation_ts < %(end_date_seconds)s
+        """
 
     begin = time.time()
     with CONFIG.get_conn() as conn:
@@ -198,9 +188,7 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
                 new_user_sql,
                 {
                     "start_date_seconds": start / 1000,
-                    "start_date": start,
                     "end_date_seconds": stop / 1000,
-                    "end_date": stop,
                 },
             )
             # print('row count is %d' % cursor.rowcount)

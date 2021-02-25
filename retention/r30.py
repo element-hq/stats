@@ -214,7 +214,7 @@ def main():
 
     reporter = mysql_reporter if args.upload else csv_reporter
 
-    with reporter(fieldnames) as report:
+    with reporter(fieldnames=fieldnames) as report:
         for day in range(args.since.toordinal(), args.until.toordinal()):
             date = datetime.date.fromordinal(day)
 
@@ -231,7 +231,7 @@ def main():
 
 
 @contextmanager
-def csv_reporter(fieldnames):
+def csv_reporter(fieldnames=None):
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
 
@@ -242,7 +242,7 @@ def csv_reporter(fieldnames):
 
 
 @contextmanager
-def mysql_reporter(fieldnames):
+def mysql_reporter(**kwargs):
     import MySQLdb
 
     db = MySQLdb.connect(

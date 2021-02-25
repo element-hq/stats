@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from contextlib import contextmanager
 import csv
 import datetime
 import os
@@ -189,9 +190,6 @@ def main():
     if (args.until - args.since).days < 1:
         parser.error(f"invalid date range: since {args.since} until {args.until}")
 
-    if args.upload:
-        parser.error("uploading statistics is not yet supported")
-
     if args.upload and not args.no_useragent:
         parser.error("uploading useragent statistics is not yet supported")
 
@@ -214,22 +212,60 @@ def main():
     if include_clients:
         fieldnames.extend(sorted(CLIENTS))
 
+    reporter = mysql_reporter if args.upload else csv_reporter
+
+    with reporter(fieldnames) as report:
+        for day in range(args.since.toordinal(), args.until.toordinal()):
+            date = datetime.date.fromordinal(day)
+
+            r30 = get_r30(conn, date)
+
+            if include_clients and date > CLIENT_THRESHOLD_DATE:
+                client_r30 = get_r30_by_client(conn, date)
+            else:
+                client_r30 = {}
+
+            report(date, r30, **client_r30)
+
+    conn.close()
+
+
+@contextmanager
+def csv_reporter(fieldnames):
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
 
-    for day in range(args.since.toordinal(), args.until.toordinal()):
-        date = datetime.date.fromordinal(day)
-
-        r30 = get_r30(conn, date)
-
-        if include_clients and date > CLIENT_THRESHOLD_DATE:
-            client_r30 = get_r30_by_client(conn, date)
-        else:
-            client_r30 = {}
-
+    def report(date, r30, **client_r30):
         writer.writerow(dict(date=date, r30=r30, **client_r30))
 
-    conn.close()
+    yield report
+
+
+@contextmanager
+def mysql_reporter(fieldnames):
+    import MySQLdb
+
+    db = MySQLdb.connect(
+        host=os.environ.get("STATS_DB_HOST", "vlepo.int.matrix.org"),
+        user=os.environ.get("STATS_DB_USERNAME", "cohort_analysis"),
+        passwd=os.environ.get("STATS_DB_PASSWORD", None),
+        db=os.environ.get("STATS_DB_DATABASE", "businessmetrics"),
+        port=int(os.environ.get("STATS_DB_PORT", "3306")),
+        ssl="ssl",
+    )
+
+    cursor = db.cursor()
+
+    def report(date, r30, **client_r30):
+        cursor.execute(
+            "REPLACE INTO r30 (date, all_clients) VALUES (%s, %s)", (date, r30)
+        )
+
+    yield report
+
+    cursor.close()
+    db.commit()
+    db.close()
 
 
 if __name__ == "__main__":

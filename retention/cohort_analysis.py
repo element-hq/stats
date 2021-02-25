@@ -6,8 +6,8 @@ import logging
 import os
 import time
 from collections import Counter, defaultdict
-from typing import (Collection, Dict, Iterable, List, Mapping, Optional,
-                    Sequence, Set, Tuple)
+from typing import (Collection, Dict, Iterable, Mapping, Optional, Sequence,
+                    Set, Tuple)
 
 import attr
 
@@ -417,6 +417,15 @@ def get_cohort_users_and_client_mapping(
     return (cohort_users, users_and_devices_to_client)
 
 
+@attr.s(frozen=True, slots=True)
+class CohortKey:
+    # start date for the cohort
+    cohort_start_date = attr.ib(type=str)
+
+    # one of ELEMENT_ANDROID, WEB, etc
+    client_type = attr.ib(type=str)
+
+
 def get_cohort_clients_bucket(
         cohort_users: Collection[User],
         users_and_devices_to_client: Mapping[str, str],
@@ -473,7 +482,25 @@ def get_cohort_clients_bucket(
     return estimated_client_types
 
 
-def generate_by_cohort(cohort_start_date, buckets, period):
+# the result type of the generate methods.
+# A set of (cohort key, bucket number, count) rows
+CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
+
+
+def generate_by_cohort(
+    cohort_start_date: int, buckets: int, period: int
+) -> CohortStatsResult:
+    """
+    Generate the stats for the given cohort across multiple buckets
+
+    Args:
+        cohort_start_date: start time of cohort bucket to update
+        buckets: number of usage buckets to update
+        period: duration of each cohort/bucket (ms)
+
+    Returns:
+        a CohortStatsResult
+    """
     cohort_end_date = cohort_start_date + period
 
     now = int(time.time()) * 1000
@@ -486,7 +513,6 @@ def generate_by_cohort(cohort_start_date, buckets, period):
         f"{period / MS_PER_DAY} days."
     )
 
-    cohorts = []
     cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
                                                                                     cohort_end_date)
 
@@ -501,14 +527,15 @@ def generate_by_cohort(cohort_start_date, buckets, period):
             bucket_start_date,
             bucket_end_date,
         )
-        cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
 
-    return cohorts
+        for client, count in client_types.items():
+            cohort_key = CohortKey(ts_to_str(cohort_start_date), client)
+            yield cohort_key, bucket_num, count
 
 
 def generate_by_bucket(
-        bucket_start_date: int, buckets: int, period: int
-) -> List[Tuple[str, int, Mapping[str, int]]]:
+    bucket_start_date: int, buckets: int, period: int
+) -> CohortStatsResult:
     """
     Generate the stats for each user cohort from the usage stats in the given bucket
 
@@ -519,8 +546,7 @@ def generate_by_bucket(
         period: duration of each cohort/bucket (ms)
 
     Returns:
-        For each cohort:
-          (start date for the cohort, bucket number for the cohort, client type->count map)
+        a CohortStatsResult
     """
     bucket_end_date = bucket_start_date + period
     logging.info(
@@ -528,8 +554,6 @@ def generate_by_bucket(
         f"{period / MS_PER_DAY} days, for activity between "
         f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}"
     )
-
-    cohorts = []
 
     # If we request n buckets, then the cohort n-1 back will have its n'th bucket at bucket_start_date
     for bucket in range(buckets):
@@ -545,19 +569,21 @@ def generate_by_bucket(
             bucket_start_date,
             bucket_end_date,
         )
-        cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
+        for client, count in client_types.items():
+            cohort_key = CohortKey(ts_to_str(cohort_start_date), client)
+            yield cohort_key, bucket_num, count
 
-    return cohorts
 
-
-def write_to_mysql(table, buckets_stats, dry_run):
+def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):
     statements_and_values = []
-    for cohort_date, bucket_num, client_counts in buckets_stats:
-        for client in [ELEMENT_ANDROID, RIOTX_ANDROID, ELEMENT_ELECTRON, ELEMENT_IOS, WEB]:
-            insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
-                            f"(%s, %s, %s) " \
-                            f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
-            statements_and_values.append((insert_bucket, cohort_date, client, client_counts[client]))
+
+    for cohort_key, bucket_num, count in buckets_stats:
+        insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
+                        f"(%s, %s, %s) " \
+                        f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
+        statements_and_values.append(
+            (insert_bucket, cohort_key.cohort_start_date, cohort_key.client_type, count)
+        )
 
     if dry_run:
         logging.info("Would have run the following SQL statements")
@@ -595,7 +621,6 @@ def main():
     else:
         raise ValueError(f"Unexpected mode {mode}")
 
-    logging.info(buckets_stats)
     write_to_mysql(table, buckets_stats, dry_run)
 
 

@@ -337,29 +337,6 @@ def construct_users_and_devices_to_clients_mapping(
     return users_and_devices_to_clients
 
 
-def map_users_devices_to_clients(
-    users_devices: Iterable[Tuple[str, str]], users_and_devices_to_clients: Mapping[str, str]
-) -> Mapping[str, int]:
-    """given a list of users and devices, calculate the number of users on each client
-
-    Note that if a given user uses two different clients, that one user will be counted
-    under both clients. That means that totalling retention stats across clients isn't
-    statistically correct.
-    """
-
-    # first build a list of users for each client, to deduplicate users
-    clients_to_users = {}
-    for (user, device_id) in users_devices:
-        client = users_and_devices_to_clients[user + "+" + device_id]
-        clients_to_users.setdefault(client, set()).add(user)
-
-    # then convert to a count of users per client
-    counts = Counter()
-    for client, users in clients_to_users.items():
-        counts[client] = len(users)
-    return counts
-
-
 def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
     """Split MISSING clients according to the proportion of known clients"""
     element_android_count = client_types.get(ELEMENT_ANDROID, 0)
@@ -458,7 +435,21 @@ def get_cohort_clients_bucket(
     bucket_users_devices = get_cohort_user_devices_bucket(cohort_users, bucket_start_date, bucket_end_date)
     logging.info(f"bucket_users_devices count is {len(bucket_users_devices)}")
 
-    bucket_client_types = map_users_devices_to_clients(bucket_users_devices, users_and_devices_to_client)
+    # build a list of users for each client, to deduplicate users
+    clients_to_users = {}
+    for (user, device_id) in bucket_users_devices:
+        client = users_and_devices_to_client[user + "+" + device_id]
+        clients_to_users.setdefault(client, set()).add(user)
+
+    # then convert to a count of users per client.
+    #
+    # Note that if a given user uses two different clients, that one user will be
+    # counted under both clients. That means that totalling retention stats across
+    # clients isn't statistically correct.
+
+    bucket_client_types = Counter()
+    for client, users in clients_to_users.items():
+        bucket_client_types[client] = len(users)
     logging.info(f"bucket_client_types={bucket_client_types}")
 
     estimated_client_types = estimate_client_types(bucket_client_types)

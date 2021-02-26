@@ -14,6 +14,7 @@ from psycopg2 import connect
 
 # Script to calculate user retention cohorts and output the results,
 # comma separated to stdout
+from psycopg2.extensions import make_dsn
 
 ELEMENT_ELECTRON = "electron"
 WEB = "web"
@@ -30,24 +31,22 @@ logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S
 
 class Config:
     def __init__(self):
-        self.SYNAPSE_DB_HOST = os.environ["SYNAPSE_DB_HOST"]
-        self.SYNAPSE_DB_USERNAME = os.environ["SYNAPSE_DB_USERNAME"]
-        self.SYNAPSE_DB_PASSWORD = os.environ["SYNAPSE_DB_PASSWORD"]
-        self.SYNAPSE_DB_DATABASE = os.environ["SYNAPSE_DB_DATABASE"]
-        self.SYNAPSE_DB_OPTIONS = os.environ["SYNAPSE_DB_OPTIONS"]
+        self.pg_dsn = make_dsn(
+            host=os.environ["SYNAPSE_DB_HOST"],
+            # port is optional and make_dsn ignores None values, so we use .get()
+            port=os.environ.get("SYNAPSE_DB_PORT"),
+            user=os.environ["SYNAPSE_DB_USERNAME"],
+            password=os.environ["SYNAPSE_DB_PASSWORD"],
+            dbname=os.environ["SYNAPSE_DB_DATABASE"],
+            options=os.environ["SYNAPSE_DB_OPTIONS"],
+        )
         self.STATS_DB_HOST = os.environ["STATS_DB_HOST"]
         self.STATS_DB_USERNAME = os.environ["STATS_DB_USERNAME"]
         self.STATS_DB_PASSWORD = os.environ["STATS_DB_PASSWORD"]
         self.STATS_DB_DATABASE = os.environ["STATS_DB_DATABASE"]
 
     def get_conn(self):
-        conn = connect(
-            dbname=self.SYNAPSE_DB_DATABASE,
-            user=self.SYNAPSE_DB_USERNAME,
-            password=self.SYNAPSE_DB_PASSWORD,
-            host=self.SYNAPSE_DB_HOST,
-            options=self.SYNAPSE_DB_OPTIONS,
-        )
+        conn = connect(self.pg_dsn)
         conn.set_session(readonly=True, autocommit=True)
         return conn
 

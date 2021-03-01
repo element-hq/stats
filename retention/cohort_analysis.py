@@ -5,9 +5,11 @@ import datetime
 import logging
 import os
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import (Collection, Dict, Iterable, List, Mapping, Optional,
-                    Sequence, Tuple)
+                    Sequence, Set, Tuple)
+
+import attr
 
 import MySQLdb
 from psycopg2 import connect
@@ -170,7 +172,16 @@ def user_agent_to_client(user_agent):
     return OTHER
 
 
-def get_new_users(start: int, stop: int) -> Sequence[str]:
+@attr.s(frozen=True, slots=True)
+class User:
+    """Information about a specific user in the cohort"""
+    user_id = attr.ib(type=str)
+
+    # a list of the SSO auth_providers that this user can use
+    auth_providers = attr.ib(type=Collection[str])
+
+
+def get_new_users(start: int, stop: int) -> Sequence[User]:
     """Get a list of all users that registered an account during
     the given timeframe
 
@@ -181,16 +192,21 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
         stop: end of the timeframe to check, exclusive, as ms since the
             epoch.
     Returns:
-        A list of distinct user_ids
+        A list of distinct users
     """
 
     new_user_sql = """
-        SELECT users.name FROM users
+        SELECT users.name, uei.auth_provider
+        FROM users
+        LEFT JOIN user_external_ids AS uei ON uei.user_id=users.name
         WHERE appservice_id is NULL
             AND is_guest = 0
             AND creation_ts >= %(start_date_seconds)s
             AND creation_ts < %(end_date_seconds)s
         """
+
+    # for each user_id, a list of auth providers
+    users = defaultdict(list)  # type: Dict[str, List[str]]
 
     begin = time.time()
     with CONFIG.get_conn() as conn:
@@ -202,24 +218,27 @@ def get_new_users(start: int, stop: int) -> Sequence[str]:
                     "end_date_seconds": stop / 1000,
                 },
             )
-            # print('row count is %d' % cursor.rowcount)
-            res = [row[0] for row in cursor]
+            for user, ap in cursor:
+                aps = users[user]
+                if ap:
+                    aps.append(ap)
     conn.close()
 
     # Running this query on secondary database not tuned for long running queries
     # this is really heavy handed way of allowing background processes to keep up :/
     pause = time.time() - begin
     time.sleep(pause)
-    return res
+    return [User(user_id, aps) for user_id, aps in users.items()]
 
 
-def get_cohort_user_devices_bucket(
+def get_bucket_devices_by_user(
     users: Collection[str], start: int, stop: int
-) -> Sequence[Tuple[str, str]]:
+) -> Dict[str, Collection[str]]:
     """Given a list of users, get the device IDs that they used in the given period
     """
     if len(users) == 0:
-        return []
+        return {}
+
     cohort_sql = """SELECT DISTINCT user_id, device_id
                         FROM user_daily_visits
                         WHERE user_id IN %s
@@ -227,6 +246,7 @@ def get_cohort_user_devices_bucket(
                         AND device_id IS NOT NULL
                     """
 
+    res = defaultdict(list)
     begin = time.time()
     with CONFIG.get_conn() as conn:
         with conn.cursor() as cursor:
@@ -234,7 +254,8 @@ def get_cohort_user_devices_bucket(
                 cohort_sql,
                 (tuple(users), int(start), int(stop)),
             )
-            res = cursor.fetchall()
+            for user_id, device_id in cursor:
+                res[user_id].append(device_id)
     conn.close()
 
     # Running this query on secondary database not tuned for long running queries
@@ -336,29 +357,6 @@ def construct_users_and_devices_to_clients_mapping(
     return users_and_devices_to_clients
 
 
-def map_users_devices_to_clients(
-    users_devices: Iterable[Tuple[str, str]], users_and_devices_to_clients: Mapping[str, str]
-) -> Mapping[str, int]:
-    """given a list of users and devices, calculate the number of users on each client
-
-    Note that if a given user uses two different clients, that one user will be counted
-    under both clients. That means that totalling retention stats across clients isn't
-    statistically correct.
-    """
-
-    # first build a list of users for each client, to deduplicate users
-    clients_to_users = {}
-    for (user, device_id) in users_devices:
-        client = users_and_devices_to_clients[user + "+" + device_id]
-        clients_to_users.setdefault(client, set()).add(user)
-
-    # then convert to a count of users per client
-    counts = Counter()
-    for client, users in clients_to_users.items():
-        counts[client] = len(users)
-    return counts
-
-
 def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
     """Split MISSING clients according to the proportion of known clients"""
     element_android_count = client_types.get(ELEMENT_ANDROID, 0)
@@ -389,7 +387,7 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
 
 def get_cohort_users_and_client_mapping(
         cohort_start_date: int, cohort_end_date: int
-) -> Tuple[Collection[str], Dict[str, str]]:
+) -> Tuple[Collection[User], Dict[str, str]]:
     """
     Get the users that registered an account during the given timeframe, and
     the names of all the clients they have ever used.
@@ -414,9 +412,12 @@ def get_cohort_users_and_client_mapping(
     )
 
     cohort_users = get_new_users(cohort_start_date, cohort_end_date)
-    logging.info(f"cohort_users count is {len(cohort_users)}")
+    logging.info(f"Found {len(cohort_users)} users in the cohort")
 
-    users_devices_user_agents = get_user_agents(cohort_users, cohort_start_date)
+    users_devices_user_agents = get_user_agents(
+        tuple(u.user_id for u in cohort_users),
+        cohort_start_date,
+    )
     logging.info(f"users_devices_user_agents count is {len(users_devices_user_agents)}")
 
     users_and_devices_to_client = construct_users_and_devices_to_clients_mapping(users_devices_user_agents)
@@ -425,16 +426,31 @@ def get_cohort_users_and_client_mapping(
     return (cohort_users, users_and_devices_to_client)
 
 
+@attr.s(frozen=True, slots=True)
+class CohortKey:
+    # start date for the cohort
+    cohort_start_date = attr.ib(type=str)
+
+    # one of ELEMENT_ANDROID, WEB, etc
+    client_type = attr.ib(type=str)
+
+    # the SSO identity provider
+    sso_idp = attr.ib(type=str)
+
+
 def get_cohort_clients_bucket(
-        cohort_users: Collection[str],
-        users_and_devices_to_client: Mapping[str, str],
-        bucket_start_date: int,
-        bucket_end_date: int,
-) -> Mapping[str, int]:
+    cohort_users: Collection[User],
+    cohort_start_date: int,
+    users_and_devices_to_client: Mapping[str, str],
+    bucket_start_date: int,
+    bucket_end_date: int,
+) -> Iterable[Tuple[CohortKey, int]]:
     """Get the count of users who used each client type between the 2 provided dates
 
     Args:
         cohort_users: The cohort of users we are interested in
+
+        cohort_start_date: the start date of the user cohort
 
         users_and_devices_to_client: a mapping of user_id+device_id -> client type for
             all user_id, device_id pairs we've ever seen for this cohort.
@@ -448,24 +464,67 @@ def get_cohort_clients_bucket(
             epoch.
 
     Returns:
-        Mapping from client type to number of users
+        A series of (cohort key, count) rows
     """
     logging.info(f"Getting client counts for cohort of size {len(cohort_users)} active between "
                  f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}")
 
-    # All user_devices of the above that are still active in cohort_date
-    bucket_users_devices = get_cohort_user_devices_bucket(cohort_users, bucket_start_date, bucket_end_date)
-    logging.info(f"bucket_users_devices count is {len(bucket_users_devices)}")
+    # Get a map of the device ids that were active for each user during the usage bucket
+    bucket_user_device_map = get_bucket_devices_by_user(
+        tuple(u.user_id for u in cohort_users), bucket_start_date, bucket_end_date
+    )
 
-    bucket_client_types = map_users_devices_to_clients(bucket_users_devices, users_and_devices_to_client)
-    logging.info(f"bucket_client_types={bucket_client_types}")
+    # build a list of users for each client, to deduplicate users
+    # map from client to a set of (user_id, sso_idp) pairs
+    clients_to_users = {}  # type: Dict[str, Set[Tuple[str, str]]]
+    for user in cohort_users:
+        # the user might have registered with more than one SSO IdP; if so, we just
+        # pick the first one.
+        sso_idp = user.auth_providers[0] if user.auth_providers else ''
 
-    estimated_client_types = estimate_client_types(bucket_client_types)
-    logging.info(f"estimated_client_types={estimated_client_types}")
-    return estimated_client_types
+        for device_id in bucket_user_device_map.get(user.user_id, []):
+            client = users_and_devices_to_client[user.user_id + "+" + device_id]
+            clients_to_users.setdefault(client, set()).add((user.user_id, sso_idp))
+
+    # Now, for each SSO IdP, build a count of users per client.
+    #
+    # Note that if a given user uses two different clients, that one user will be
+    # counted under both clients. That means that totalling retention stats across
+    # clients isn't statistically correct.
+
+    # sso_idp -> client -> count
+    sso_bucket_client_types = defaultdict(Counter)   # type: Mapping[str, Counter]
+
+    for client, users in clients_to_users.items():
+        for user_id, sso_idp in users:
+            sso_bucket_client_types[sso_idp][client] += 1
+    logging.info(f"bucket_client_types={sso_bucket_client_types}")
+
+    for sso_idp, client_types in sso_bucket_client_types.items():
+        for client, count in estimate_client_types(client_types).items():
+            cohort_key = CohortKey(ts_to_str(cohort_start_date), client, sso_idp)
+            yield cohort_key, count
 
 
-def generate_by_cohort(cohort_start_date, buckets, period):
+# the result type of the generate methods.
+# A set of (cohort key, bucket number, count) rows
+CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
+
+
+def generate_by_cohort(
+    cohort_start_date: int, buckets: int, period: int
+) -> CohortStatsResult:
+    """
+    Generate the stats for the given cohort across multiple buckets
+
+    Args:
+        cohort_start_date: start time of cohort bucket to update
+        buckets: number of usage buckets to update
+        period: duration of each cohort/bucket (ms)
+
+    Returns:
+        a CohortStatsResult
+    """
     cohort_end_date = cohort_start_date + period
 
     now = int(time.time()) * 1000
@@ -478,7 +537,6 @@ def generate_by_cohort(cohort_start_date, buckets, period):
         f"{period / MS_PER_DAY} days."
     )
 
-    cohorts = []
     cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
                                                                                     cohort_end_date)
 
@@ -487,16 +545,21 @@ def generate_by_cohort(cohort_start_date, buckets, period):
         bucket_start_date = cohort_start_date + (bucket * period)
         bucket_end_date = bucket_start_date + period
 
-        client_types = get_cohort_clients_bucket(cohort_users, users_and_devices_to_client,
-                                                 bucket_start_date, bucket_end_date)
-        cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
+        client_types = get_cohort_clients_bucket(
+            cohort_users,
+            cohort_start_date,
+            users_and_devices_to_client,
+            bucket_start_date,
+            bucket_end_date,
+        )
 
-    return cohorts
+        for cohort_key, count in client_types:
+            yield cohort_key, bucket_num, count
 
 
 def generate_by_bucket(
-        bucket_start_date: int, buckets: int, period: int
-) -> List[Tuple[str, int, Mapping[str, int]]]:
+    bucket_start_date: int, buckets: int, period: int
+) -> CohortStatsResult:
     """
     Generate the stats for each user cohort from the usage stats in the given bucket
 
@@ -507,8 +570,7 @@ def generate_by_bucket(
         period: duration of each cohort/bucket (ms)
 
     Returns:
-        For each cohort:
-          (start date for the cohort, bucket number for the cohort, client type->count map)
+        a CohortStatsResult
     """
     bucket_end_date = bucket_start_date + period
     logging.info(
@@ -516,8 +578,6 @@ def generate_by_bucket(
         f"{period / MS_PER_DAY} days, for activity between "
         f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}"
     )
-
-    cohorts = []
 
     # If we request n buckets, then the cohort n-1 back will have its n'th bucket at bucket_start_date
     for bucket in range(buckets):
@@ -527,26 +587,39 @@ def generate_by_bucket(
                                                                                         cohort_end_date)
 
         bucket_num = bucket + 1
-        client_types = get_cohort_clients_bucket(cohort_users, users_and_devices_to_client,
-                                                 bucket_start_date, bucket_end_date)
-        cohorts.append((ts_to_str(cohort_start_date), bucket_num, client_types))
+        client_types = get_cohort_clients_bucket(
+            cohort_users,
+            cohort_start_date,
+            users_and_devices_to_client,
+            bucket_start_date,
+            bucket_end_date,
+        )
+        for cohort_key, count in client_types:
+            yield cohort_key, bucket_num, count
 
-    return cohorts
 
-
-def write_to_mysql(table, buckets_stats, dry_run):
+def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):
     statements_and_values = []
-    for cohort_date, bucket_num, client_counts in buckets_stats:
-        for client in [ELEMENT_ANDROID, RIOTX_ANDROID, ELEMENT_ELECTRON, ELEMENT_IOS, WEB]:
-            insert_bucket = f"INSERT INTO {table} (date, client, b{bucket_num}) VALUES" \
-                            f"(%s, %s, %s) " \
-                            f"ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num});"
-            statements_and_values.append((insert_bucket, cohort_date, client, client_counts[client]))
+
+    for cohort_key, bucket_num, count in buckets_stats:
+        insert_bucket = f"""\
+            INSERT INTO {table} (date, client, sso_idp, b{bucket_num})
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num})
+        """
+        statements_and_values.append((
+            insert_bucket, (
+                cohort_key.cohort_start_date,
+                cohort_key.client_type,
+                cohort_key.sso_idp,
+                count
+            )
+        ))
 
     if dry_run:
         logging.info("Would have run the following SQL statements")
-        for insert_string, cohort_date, client, count in statements_and_values:
-            print(insert_string % (cohort_date, client, count))
+        for insert_string, values in statements_and_values:
+            print(insert_string % values)
         return
 
     # Connect to and setup db:
@@ -560,8 +633,8 @@ def write_to_mysql(table, buckets_stats, dry_run):
     )
 
     with db.cursor() as cursor:
-        for insert_string, cohort_date, client, count in statements_and_values:
-            cursor.execute(insert_string, (cohort_date, client, count))
+        for insert_string, values in statements_and_values:
+            cursor.execute(insert_string, values)
         db.commit()
 
 
@@ -579,7 +652,6 @@ def main():
     else:
         raise ValueError(f"Unexpected mode {mode}")
 
-    logging.info(buckets_stats)
     write_to_mysql(table, buckets_stats, dry_run)
 
 

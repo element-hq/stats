@@ -190,9 +190,6 @@ def main():
     if (args.until - args.since).days < 1:
         parser.error(f"invalid date range: since {args.since} until {args.until}")
 
-    if args.upload and not args.no_useragent:
-        parser.error("uploading useragent statistics is not yet supported")
-
     conn = psycopg2.connect(
         dbname=os.environ.get("SYNAPSE_DB_DATABASE", "matrix"),
         user=os.environ.get("SYNAPSE_DB_USERNAME", None),
@@ -257,9 +254,22 @@ def mysql_reporter(**kwargs):
     cursor = db.cursor()
 
     def report(date, r30, **client_r30):
-        cursor.execute(
-            "REPLACE INTO r30 (date, all_clients) VALUES (%s, %s)", (date, r30)
-        )
+        columns = ["date", "all_clients"]
+        values = [date, r30]
+
+        if client_r30:
+            # Only accept known clients per the constant above
+            client_r30 = {k: v for k, v in client_r30.items() if k in CLIENTS}
+
+            # Split the client data into two lists: one of names, one of values
+            extra_columns, extra_values = zip(*client_r30.items())
+            columns.extend(extra_columns)
+            values.extend(extra_values)
+
+        column_sql = ", ".join(f"`{column}`" for column in columns)
+        value_sql = ", ".join(["%s"] * len(values))
+
+        cursor.execute(f"REPLACE INTO r30 ({column_sql}) VALUES ({value_sql})", values)
 
     yield report
 

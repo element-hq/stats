@@ -222,7 +222,7 @@ def main():
             else:
                 client_r30 = {}
 
-            report(date, r30, **client_r30)
+            report(date, r30, client_r30)
 
     conn.close()
 
@@ -232,7 +232,7 @@ def csv_reporter(fieldnames=None):
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
 
-    def report(date, r30, **client_r30):
+    def report(date, r30, client_r30):
         writer.writerow(dict(date=date, r30=r30, **client_r30))
 
     yield report
@@ -253,7 +253,7 @@ def mysql_reporter(**kwargs):
 
     cursor = db.cursor()
 
-    def report(date, r30, **client_r30):
+    def report(date, r30, client_r30):
         columns = ["date", "all_clients"]
         values = [date, r30]
 

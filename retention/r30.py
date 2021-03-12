@@ -276,9 +276,9 @@ def mysql_reporter(*, fieldnames: Iterable[str]) -> Generator[Reporter, None, No
             client_r30 = {k: v for k, v in client_r30.items() if k in CLIENTS}
 
             # Split the client data into two lists: one of names, one of values
-            extra_columns, extra_values = zip(*client_r30.items())
-            columns.extend(extra_columns)
-            values.extend(extra_values)
+            client_names, client_r30_values = zip(*client_r30.items())
+            columns.extend(client_names)
+            values.extend(client_r30_values)
 
         column_sql = ", ".join(f"`{column}`" for column in columns)
         value_sql = ", ".join(["%s"] * len(values))

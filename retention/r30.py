@@ -5,8 +5,9 @@ import csv
 import datetime
 import os
 import sys
+from typing import cast, Any, Callable, Generator, Iterable, Mapping
 
-import psycopg2
+import psycopg2  # type: ignore
 
 CLIENTS = ["android", "android-riotx", "electron", "ios", "missing", "other", "web"]
 
@@ -107,14 +108,17 @@ R30_CLIENT_SQL = """
 """
 
 
-def get_r30(conn, date):
+def get_r30(conn: Any, date: datetime.date) -> int:
     with conn:
         with conn.cursor() as curs:
             curs.execute(R30_ALL_SQL, {"date": date})
-            return curs.fetchone()[0]
+            result: int = curs.fetchone()[0]
+            return result
 
 
-def get_r30_by_client(conn, date, force=False):
+def get_r30_by_client(
+    conn: Any, date: datetime.date, force: bool = False
+) -> Mapping[str, int]:
     if date < CLIENT_THRESHOLD_DATE and not force:
         return {}
 
@@ -124,7 +128,7 @@ def get_r30_by_client(conn, date, force=False):
             return dict(curs.fetchall())
 
 
-def date_or_duration(s: str):
+def date_or_duration(s: str) -> datetime.date:
     "Convert ISO dates or '{int}d' strings to a datetime.date"
     if s.lower() == "today":
         return datetime.date.today()
@@ -136,7 +140,7 @@ def date_or_duration(s: str):
         return datetime.date.fromisoformat(s)
 
 
-def main():
+def main() -> None:
     import argparse
     import textwrap
 
@@ -209,7 +213,10 @@ def main():
     if include_clients:
         fieldnames.extend(sorted(CLIENTS))
 
-    reporter = mysql_reporter if args.upload else csv_reporter
+    if args.upload:
+        reporter = mysql_reporter
+    else:
+        reporter = csv_reporter
 
     with reporter(fieldnames=fieldnames) as report:
         for day in range(args.since.toordinal(), args.until.toordinal()):
@@ -227,20 +234,27 @@ def main():
     conn.close()
 
 
+# Reporters are functions which are responsible for persisting the results of an r30 query
+# They accept a date, an overall r30 value, and a mapping from client types to their r30 values
+Reporter = Callable[[datetime.date, int, Mapping[str, int]], None]
+
+
 @contextmanager
-def csv_reporter(fieldnames=None):
+def csv_reporter(*, fieldnames: Iterable[str]) -> Generator[Reporter, None, None]:
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
 
-    def report(date, r30, client_r30):
+    def report(date: datetime.date, r30: int, client_r30: Mapping[str, int]) -> None:
         writer.writerow(dict(date=date, r30=r30, **client_r30))
 
     yield report
 
 
 @contextmanager
-def mysql_reporter(**kwargs):
-    import MySQLdb
+def mysql_reporter(*, fieldnames: Iterable[str]) -> Generator[Reporter, None, None]:
+    # fieldnames is unused, but kept to match the function signature of csv_reporter
+
+    import MySQLdb  # type: ignore
 
     db = MySQLdb.connect(
         host=os.environ.get("STATS_DB_HOST", "vlepo.int.matrix.org"),
@@ -253,7 +267,7 @@ def mysql_reporter(**kwargs):
 
     cursor = db.cursor()
 
-    def report(date, r30, client_r30):
+    def report(date: datetime.date, r30: int, client_r30: Mapping[str, int]) -> None:
         columns = ["date", "all_clients"]
         values = [date, r30]
 

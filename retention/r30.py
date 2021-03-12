@@ -5,8 +5,9 @@ import csv
 import datetime
 import os
 import sys
+from typing import cast, Any, Callable, Generator, Iterable, Mapping
 
-import psycopg2
+import psycopg2  # type: ignore
 
 CLIENTS = ["android", "android-riotx", "electron", "ios", "missing", "other", "web"]
 
@@ -107,14 +108,17 @@ R30_CLIENT_SQL = """
 """
 
 
-def get_r30(conn, date):
+def get_r30(conn: Any, date: datetime.date) -> int:
     with conn:
         with conn.cursor() as curs:
             curs.execute(R30_ALL_SQL, {"date": date})
-            return curs.fetchone()[0]
+            result: int = curs.fetchone()[0]
+            return result
 
 
-def get_r30_by_client(conn, date, force=False):
+def get_r30_by_client(
+    conn: Any, date: datetime.date, force: bool = False
+) -> Mapping[str, int]:
     if date < CLIENT_THRESHOLD_DATE and not force:
         return {}
 
@@ -124,7 +128,7 @@ def get_r30_by_client(conn, date, force=False):
             return dict(curs.fetchall())
 
 
-def date_or_duration(s: str):
+def date_or_duration(s: str) -> datetime.date:
     "Convert ISO dates or '{int}d' strings to a datetime.date"
     if s.lower() == "today":
         return datetime.date.today()
@@ -136,7 +140,7 @@ def date_or_duration(s: str):
         return datetime.date.fromisoformat(s)
 
 
-def main():
+def main() -> None:
     import argparse
     import textwrap
 
@@ -190,9 +194,6 @@ def main():
     if (args.until - args.since).days < 1:
         parser.error(f"invalid date range: since {args.since} until {args.until}")
 
-    if args.upload and not args.no_useragent:
-        parser.error("uploading useragent statistics is not yet supported")
-
     conn = psycopg2.connect(
         dbname=os.environ.get("SYNAPSE_DB_DATABASE", "matrix"),
         user=os.environ.get("SYNAPSE_DB_USERNAME", None),
@@ -212,7 +213,10 @@ def main():
     if include_clients:
         fieldnames.extend(sorted(CLIENTS))
 
-    reporter = mysql_reporter if args.upload else csv_reporter
+    if args.upload:
+        reporter = mysql_reporter
+    else:
+        reporter = csv_reporter
 
     with reporter(fieldnames=fieldnames) as report:
         for day in range(args.since.toordinal(), args.until.toordinal()):
@@ -225,25 +229,32 @@ def main():
             else:
                 client_r30 = {}
 
-            report(date, r30, **client_r30)
+            report(date, r30, client_r30)
 
     conn.close()
 
 
+# Reporters are functions which are responsible for persisting the results of an r30 query
+# They accept a date, an overall r30 value, and a mapping from client types to their r30 values
+Reporter = Callable[[datetime.date, int, Mapping[str, int]], None]
+
+
 @contextmanager
-def csv_reporter(fieldnames=None):
+def csv_reporter(*, fieldnames: Iterable[str]) -> Generator[Reporter, None, None]:
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
 
-    def report(date, r30, **client_r30):
+    def report(date: datetime.date, r30: int, client_r30: Mapping[str, int]) -> None:
         writer.writerow(dict(date=date, r30=r30, **client_r30))
 
     yield report
 
 
 @contextmanager
-def mysql_reporter(**kwargs):
-    import MySQLdb
+def mysql_reporter(*, fieldnames: Iterable[str]) -> Generator[Reporter, None, None]:
+    # fieldnames is unused, but kept to match the function signature of csv_reporter
+
+    import MySQLdb  # type: ignore
 
     db = MySQLdb.connect(
         host=os.environ.get("STATS_DB_HOST", "vlepo.int.matrix.org"),
@@ -256,10 +267,23 @@ def mysql_reporter(**kwargs):
 
     cursor = db.cursor()
 
-    def report(date, r30, **client_r30):
-        cursor.execute(
-            "REPLACE INTO r30 (date, all_clients) VALUES (%s, %s)", (date, r30)
-        )
+    def report(date: datetime.date, r30: int, client_r30: Mapping[str, int]) -> None:
+        columns = ["date", "all_clients"]
+        values = [date, r30]
+
+        if client_r30:
+            # Only accept known clients per the constant above
+            client_r30 = {k: v for k, v in client_r30.items() if k in CLIENTS}
+
+            # Split the client data into two lists: one of names, one of values
+            client_names, client_r30_values = zip(*client_r30.items())
+            columns.extend(client_names)
+            values.extend(client_r30_values)
+
+        column_sql = ", ".join(f"`{column}`" for column in columns)
+        value_sql = ", ".join(["%s"] * len(values))
+
+        cursor.execute(f"REPLACE INTO r30 ({column_sql}) VALUES ({value_sql})", values)
 
     yield report
 

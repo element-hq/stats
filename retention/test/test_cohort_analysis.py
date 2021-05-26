@@ -1,6 +1,7 @@
-from datetime import date
 import unittest
-import cohort_analysis as ca
+import retention.cohort_analysis as cohort_analysis
+
+CONFIG = cohort_analysis.Config()
 
 
 def configure_test_db():
@@ -8,19 +9,19 @@ def configure_test_db():
     sql_create_users = """
         DROP TABLE IF EXISTS users;
         CREATE TABLE users(
-        name text,
-        password_hash text,
-        creation_ts bigint,
-        admin smallint DEFAULT 0 NOT NULL,
-        upgrade_ts bigint,
-        is_guest smallint DEFAULT 0 NOT NULL,
-        appservice_id text,
-        consent_version text,
-        consent_server_notice_sent text,
-        user_type text,
-        deactivated smallint DEFAULT 0 NOT NULL,
-        shadow_banned boolean
-    );"""
+            name text,
+            password_hash text,
+            creation_ts bigint,
+            admin smallint DEFAULT 0 NOT NULL,
+            upgrade_ts bigint,
+            is_guest smallint DEFAULT 0 NOT NULL,
+            appservice_id text,
+            consent_version text,
+            consent_server_notice_sent text,
+            user_type text,
+            deactivated smallint DEFAULT 0 NOT NULL,
+            shadow_banned boolean
+        );"""
 
     sql_create_user_daily_visits_table = """
         DROP TABLE IF EXISTS user_daily_visits;
@@ -33,9 +34,9 @@ def configure_test_db():
     sql_create_user_external_ids = """
         DROP TABLE IF EXISTS user_external_ids;
         CREATE TABLE user_external_ids (
-        auth_provider text NOT NULL,
-        external_id text NOT NULL,
-        user_id text NOT NULL
+            auth_provider text NOT NULL,
+            external_id text NOT NULL,
+            user_id text NOT NULL
         );"""
 
     with CONFIG.get_conn() as conn:
@@ -47,7 +48,6 @@ def configure_test_db():
             create_table(conn, sql_create_users)
             create_table(conn, sql_create_user_daily_visits_table)
             create_table(conn, sql_create_user_external_ids)
-            #load_data(conn)
         else:
             print("Error! cannot create the database connection.")
 
@@ -99,37 +99,30 @@ class TestCohortAnalysis(unittest.TestCase):
         configure_test_db()
 
     def test_ts_to_str(self):
-        self.assertEqual(ca.ts_to_str(1609459200000), "2021-01-01")
+        self.assertEqual(cohort_analysis.ts_to_str(1609459200000), "2021-01-01")
 
     def test_str_to_ts(self):
-        self.assertEqual(ca.str_to_ts("2021-01-01"), 1609459200000)
+        self.assertEqual(cohort_analysis.str_to_ts("2021-01-01"), 1609459200000)
 
     def test_get_new_users(self):
-        date_under_test = 16207776000000
+        date_to_test = 16207776000000
         TWENTY_FOUR_HOURS = 86400000
 
-        add_new_user_entry('user1', date_under_test - TWENTY_FOUR_HOURS)
-        add_new_user_entry('user2', date_under_test)
-        add_new_user_entry('user3', date_under_test)
-        add_new_user_entry('user4', date_under_test + TWENTY_FOUR_HOURS)
+        add_new_user_entry('user1', date_to_test - TWENTY_FOUR_HOURS)
+        add_new_user_entry('user2', date_to_test)
+        add_new_user_entry('user3', date_to_test)
+        add_new_user_entry('user4', date_to_test + TWENTY_FOUR_HOURS)
 
-        users = ca.get_new_users(1, date_under_test + (TWENTY_FOUR_HOURS * 10))
+        users = cohort_analysis.get_new_users(1, date_to_test + (TWENTY_FOUR_HOURS * 10))
 
         self.assertEqual(len(users), 4)
 
-        users = ca.get_new_users(date_under_test, date_under_test + TWENTY_FOUR_HOURS)
+        users = cohort_analysis.get_new_users(date_to_test, date_to_test + TWENTY_FOUR_HOURS)
         self.assertEqual(len(users), 2)
 
-        users = ca.get_new_users(date_under_test, date_under_test + 2 * TWENTY_FOUR_HOURS)
+        users = cohort_analysis.get_new_users(date_to_test, date_to_test + 2 * TWENTY_FOUR_HOURS)
         self.assertEqual(len(users), 3)
 
 
-CONFIG = ca.Config()
-
-
-def main():
-    unittest.main()
-
-
 if __name__ == "__main__":
-    main()
+    unittest.main()

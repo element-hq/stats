@@ -368,6 +368,8 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
     other_count = client_types.get(OTHER, 0)
     web_count = client_types.get(WEB, 0)
 
+    combined_count = client_types.get(COMBINED, 0)
+
     missing_count = client_types.get(MISSING, 0)
 
     if missing_count > 0:
@@ -384,7 +386,8 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
                     RIOTX_ANDROID: riotx_android_count,
                     ELEMENT_ELECTRON: element_electron_count,
                     ELEMENT_IOS: element_ios_count,
-                    WEB: web_count})
+                    WEB: web_count,
+                    COMBINED: combined_count})
 
 
 def get_cohort_users_and_client_mapping(

@@ -1,5 +1,6 @@
 import unittest
 import retention.cohort_analysis as cohort_analysis
+from retention.cohort_analysis import CohortKey
 
 CONFIG = cohort_analysis.Config()
 
@@ -39,6 +40,24 @@ def configure_test_db():
             user_id text NOT NULL
         );"""
 
+    sql_create_devices = """
+        DROP TABLE IF EXISTS devices;
+        CREATE TABLE devices (
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            user_agent TEXT NOT NULL
+        );
+    """
+
+    sql_create_user_ips = """
+        DROP TABLE IF EXISTS user_ips;
+        CREATE TABLE user_ips (
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            user_agent TEXT NOT NULL
+        );
+    """
+
     with CONFIG.get_conn() as conn:
 
         # create tables
@@ -50,6 +69,8 @@ def configure_test_db():
             create_table(conn, sql_create_users)
             create_table(conn, sql_create_user_daily_visits_table)
             create_table(conn, sql_create_user_external_ids)
+            create_table(conn, sql_create_devices)
+            create_table(conn, sql_create_user_ips)
         else:
             print("Error! cannot create the database connection.")
 
@@ -96,6 +117,45 @@ def add_new_user_entry(name, creation_ts):
     conn.close()
 
 
+def add_user_daily_visit_entry(user_id: str, device_id: str, user_agent: str, timestamp: int):
+    """
+    Adds a new entry into the `user_daily_visits` table.
+    """
+    sql1 = """
+        INSERT INTO user_daily_visits (user_id, device_id, "timestamp", user_agent)
+        VALUES (%(user_id)s, %(device_id)s, %(timestamp)s, %(user_agent)s)
+        """
+    sql2 = """
+        INSERT INTO user_ips (user_id, device_id, user_agent)
+        VALUES (%(user_id)s, %(device_id)s, %(user_agent)s)
+    """
+
+    with CONFIG.get_conn() as conn:
+        conn.set_session(readonly=False)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    sql1,
+                    {
+                        "user_id": user_id,
+                        "device_id": device_id,
+                        "timestamp": timestamp,
+                        "user_agent": user_agent
+                    },
+                )
+                cursor.execute(
+                    sql2,
+                    {
+                        "user_id": user_id,
+                        "device_id": device_id,
+                        "user_agent": user_agent
+                    },
+                )
+        except Exception as e:
+            print(e)
+    conn.close()
+
+
 class TestCohortAnalysis(unittest.TestCase):
     def setUp(self):
         configure_test_db()
@@ -133,6 +193,49 @@ class TestCohortAnalysis(unittest.TestCase):
 
         users = cohort_analysis.get_new_users(date_to_test, date_to_test + 2 * TWENTY_FOUR_HOURS)
         self.assertEqual(len(users), 3)
+
+    def test_get_cohort_clients_bucket(self):
+        """
+        Test the get_cohort_clients_bucket function.
+        """
+        cohort_start_date = cohort_analysis.str_to_ts("2018-10-01")
+        cohort_end_date = cohort_analysis.str_to_ts("2018-10-31")
+
+        # create some users
+        add_new_user_entry("user1", cohort_analysis.str_to_ts("2018-10-05"))
+        add_new_user_entry("user2", cohort_analysis.str_to_ts("2018-10-07"))
+        add_new_user_entry("user3", cohort_analysis.str_to_ts("2018-10-09"))
+
+        # add some visits for the users
+        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-12-13"))
+        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-12-14"))
+        add_user_daily_visit_entry("user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-12-05"))
+        add_user_daily_visit_entry("user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-12-06"))
+
+        bucket_start_date = cohort_analysis.str_to_ts("2018-12-01")
+        bucket_end_date = cohort_analysis.str_to_ts("2018-12-31")
+
+        cohort_users, users_and_devices_to_client = cohort_analysis.get_cohort_users_and_client_mapping(
+            cohort_start_date,
+            cohort_end_date
+        )
+
+        results = list(cohort_analysis.get_cohort_clients_bucket(
+            cohort_users,
+            cohort_start_date,
+            users_and_devices_to_client,
+            bucket_start_date,
+            bucket_end_date,
+        ))
+
+        self.assertEqual(results, [
+            (CohortKey("2018-10-01", "android", ""), 1),
+            (CohortKey("2018-10-01", "android-riotx", ""), 0),
+            (CohortKey("2018-10-01", "electron", ""), 0),
+            (CohortKey("2018-10-01", "ios", ""), 1),
+            (CohortKey("2018-10-01", "web", ""), 1),
+            (CohortKey("2018-10-01", "combined", ""), 2)
+        ])
 
 
 if __name__ == "__main__":

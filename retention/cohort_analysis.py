@@ -25,6 +25,8 @@ RIOTX_ANDROID = "android-riotx"
 ELEMENT_IOS = "ios"
 MISSING = "missing"
 OTHER = "other"
+# This is not a client itself but represents the usage of ANY client.
+COMBINED = "combined"
 
 MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -476,7 +478,7 @@ def get_cohort_clients_bucket(
 
     # build a list of users for each client, to deduplicate users
     # map from client to a set of (user_id, sso_idp) pairs
-    clients_to_users = {}  # type: Dict[str, Set[Tuple[str, str]]]
+    clients_to_users = {COMBINED: set()}  # type: Dict[str, Set[Tuple[str, str]]]
     for user in cohort_users:
         # the user might have registered with more than one SSO IdP; if so, we just
         # pick the first one.
@@ -484,7 +486,10 @@ def get_cohort_clients_bucket(
 
         for device_id in bucket_user_device_map.get(user.user_id, []):
             client = users_and_devices_to_client[user.user_id + "+" + device_id]
-            clients_to_users.setdefault(client, set()).add((user.user_id, sso_idp))
+            user_sso_tuple = (user.user_id, sso_idp)
+            clients_to_users.setdefault(client, set()).add(user_sso_tuple)
+            # We also make sure to include the in the combined total.
+            clients_to_users[COMBINED].add(user_sso_tuple)
 
     # Now, for each SSO IdP, build a count of users per client.
     #

@@ -438,6 +438,22 @@ class CohortKey:
     sso_idp = attr.ib(type=str)
 
 
+@attr.s(frozen=True, slots=True)
+class ClientAgnosticCohortKey:
+    """
+    This is like CohortKey, but doesn't mention the client type.
+    The point of this is to allow tracking combined metrics (combined across
+    all clients); a single user can use multiple clients and could otherwise
+    appear in multiple cohorts, so a simple sum is not correct.
+    """
+
+    # start date for the cohort
+    cohort_start_date = attr.ib(type=str)
+
+    # the SSO identity provider
+    sso_idp = attr.ib(type=str)
+
+
 def get_cohort_clients_bucket(
     cohort_users: Collection[User],
     cohort_start_date: int,
@@ -506,9 +522,69 @@ def get_cohort_clients_bucket(
             yield cohort_key, count
 
 
+def get_cohort_combined_bucket(
+    cohort_users: Collection[User],
+    cohort_start_date: int,
+    bucket_start_date: int,
+    bucket_end_date: int,
+) -> Iterable[Tuple[ClientAgnosticCohortKey, int]]:
+    """Get the count of users who used ANY client between the 2 provided dates
+
+    Args:
+        cohort_users: The cohort of users we are interested in
+
+        cohort_start_date: the start date of the user cohort
+
+        bucket_start_date: start of the timeframe to check, inclusive, as ms since the
+            epoch.
+
+        bucket_end_date: end of the timeframe to check, exclusive, as ms since the
+            epoch.
+
+    Returns:
+        A series of (client-agnostic cohort key, count) rows
+    """
+    logging.info(f"Getting client counts for cohort of size {len(cohort_users)} active between "
+                 f"{ts_to_str(bucket_start_date)} and {ts_to_str(bucket_end_date)}")
+
+    # Get a map of the device ids that were active for each user during the usage bucket
+    bucket_user_device_map = get_bucket_devices_by_user(
+        tuple(u.user_id for u in cohort_users), bucket_start_date, bucket_end_date
+    )
+
+    # Build a list of users, to deduplicate users
+    # a set of (user_id, sso_idp) pairs
+    users: Set[Tuple[str, str]] = set()
+    for user in cohort_users:
+        if user not in bucket_user_device_map:
+            # this user was not active in this part
+            # XXX i think we want this. continue
+            pass
+
+        # the user might have registered with more than one SSO IdP; if so, we just
+        # pick the first one.
+        sso_idp: str = user.auth_providers[0] if user.auth_providers else ''
+
+        users.add((user.user_id, sso_idp))
+
+    # Now, for each SSO IdP, build a count of users (regardless of client).
+    # sso_idp -> count
+    sso_bucket = Counter()
+    for (user_id, sso_idp) in users:
+        sso_bucket[sso_idp] += 1
+    # XXX logging.info(f"bucket_client_types={sso_bucket_client_types}")
+
+    for sso_idp, count in sso_bucket.items():
+        cohort_key = ClientAgnosticCohortKey(ts_to_str(cohort_start_date), sso_idp)
+        yield cohort_key, count
+
+
 # the result type of the generate methods.
 # A set of (cohort key, bucket number, count) rows
 CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
+
+# XXX
+ClientAgnosticCohortStatsResult = Iterable[Tuple[ClientAgnosticCohortKey, int, int]]
 
 
 def generate_by_cohort(

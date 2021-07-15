@@ -19,9 +19,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+
       - uses: actions/setup-python@v2
         with:
           python-version: "3.x"
-      - run: |
-          pip install -r retention/requirements.txt
-          SYNAPSE_DB_HOST=localhost SYNAPSE_DB_PORT=5432 SYNAPSE_DB_USERNAME=postgres SYNAPSE_DB_PASSWORD=verysecret SYNAPSE_DB_DATABASE=postgres SYNAPSE_DB_OPTIONS= STATS_DB_HOST= STATS_DB_USERNAME= STATS_DB_PASSWORD= STATS_DB_DATABASE= python3 -m unittest retention.test.test_cohort_analysis
+
+      - name: Install requirements
+        run: pip install -r retention/requirements.txt
+
+      - name: Run the unit tests
+        run: SYNAPSE_DB_HOST=localhost SYNAPSE_DB_PORT=5432 SYNAPSE_DB_USERNAME=postgres SYNAPSE_DB_PASSWORD=verysecret SYNAPSE_DB_DATABASE=postgres SYNAPSE_DB_OPTIONS= STATS_DB_HOST= STATS_DB_USERNAME= STATS_DB_PASSWORD= STATS_DB_DATABASE= python3 -m unittest retention.test.test_cohort_analysis

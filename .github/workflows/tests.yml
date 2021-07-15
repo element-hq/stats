@@ -23,6 +23,6 @@ jobs:
         with:
           python-version: "3.x"
       - run: |
-          sudo apt install python3-dev
+          sudo apt install python3-dev libpq-dev
           pip install -r retention/requirements.txt
           SYNAPSE_DB_HOST=postgres SYNAPSE_DB_USERNAME=postgres SYNAPSE_DB_PASSWORD=verysecret SYNAPSE_DB_DATABASE=postgres SYNAPSE_DB_OPTIONS= STATS_DB_HOST= STATS_DB_USERNAME= STATS_DB_PASSWORD= STATS_DB_DATABASE= python3 -m unittest retention.test.test_cohort_analysis

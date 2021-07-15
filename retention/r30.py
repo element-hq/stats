@@ -17,7 +17,8 @@ CLIENT_THRESHOLD_DATE = datetime.date(2020, 12, 15)
 
 # Goal: Count all distinct MXIDs which:
 # - Appear more than once in the past 60 days
-# - Have more than 30 days between the most and least recent appearances
+# - Have more than 30 days between the most and least recent appearances that
+#   occurred in the past 60 days.
 R30_ALL_SQL = """
     SELECT
         DISTINCT COUNT(*) OVER ()

@@ -14,7 +14,7 @@ Install dependencies
 
 Create the local postgres instance.
 
-`$ docker run --name postgresql-container -p 5432:5432 -e POSTGRES_USER=test -e POSTGRES_PASSWORD=somePassword -d postgres`
+`docker run --name postgresql-container -p 5432:5432 -e POSTGRES_USER=test -e POSTGRES_PASSWORD=somePassword -d postgres`
 
 From the root directory, run tests with the appropriate environment variables.
 

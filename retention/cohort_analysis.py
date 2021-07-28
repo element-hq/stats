@@ -57,7 +57,7 @@ class Config:
 
 def str_to_ts(datestring):
     return int(
-        1000 * time.mktime(datetime.datetime.strptime(datestring, "%Y-%m-%d").timetuple())
+        1000 * datetime.datetime.strptime(datestring, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()
     )
 
 
@@ -69,7 +69,7 @@ def ts_to_str(ts):
         (str): date in format %Y-%m-%d
     """
 
-    return(datetime.datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d"))
+    return datetime.datetime.fromtimestamp(ts / 1000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
 
 def get_args():
@@ -103,7 +103,7 @@ def get_args():
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--cohort_start_date",
-        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
+        type=str_to_ts,
         help="""
             Enable cohort mode. In this mode, a single cohort of PERIOD days is tracked
             through BUCKETS activity buckets, each of PERIOD days. Option gives the
@@ -113,7 +113,7 @@ def get_args():
 
     group.add_argument(
         "--bucket_start_date",
-        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
+        type=str_to_ts,
         help="""
             Enable bucket mode. In this mode, a single activity bucket of PERIOD days
             is analyzed for activity from each of BUCKETS cohorts of PERIOD days.
@@ -131,7 +131,6 @@ def parse_cohort_parameters(args):
     elif args.bucket_start_date:
         mode = "bucket"
         date = args.bucket_start_date
-    date = int(date.strftime("%s")) * 1000
 
     period = args.period
     if period == 1:

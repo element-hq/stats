@@ -513,8 +513,9 @@ def get_cohort_clients_bucket(
             yield cohort_key, count
 
 
-# the result type of the generate methods.
-# A set of (cohort key, bucket number, count) rows
+# the result types of the generate methods.
+# A set of (cohort key, bucket number, count, cohort size) rows describing how many users in
+# the cohort appear in the given bucket and what the size of the cohort is
 CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
 
 
@@ -561,7 +562,7 @@ def generate_by_cohort(
         )
 
         for cohort_key, count in client_types:
-            yield cohort_key, bucket_num, count
+            yield cohort_key, bucket_num, count, len(cohort_users)
 
 
 def generate_by_bucket(
@@ -602,24 +603,32 @@ def generate_by_bucket(
             bucket_end_date,
         )
         for cohort_key, count in client_types:
-            yield cohort_key, bucket_num, count
+            yield cohort_key, bucket_num, count, len(cohort_users)
 
 
 def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):
     statements_and_values = []
 
-    for cohort_key, bucket_num, count in buckets_stats:
+    for cohort_key, bucket_num, count, cohort_size in buckets_stats:
+        # this seems to be how it's meant to be done going forwards (but not supported on old versions)
+        # insert_bucket = f"""\
+        #     INSERT INTO {table} (date, client, sso_idp, b{bucket_num}, cohort_size)
+        #     VALUES (%s, %s, %s, %s, %s) AS new
+        #     ON DUPLICATE KEY UPDATE b{bucket_num}=new.b{bucket_num}, cohort_size=new.cohort_size
+        # """
+        # VALUES is deprecated: see https://dev.mysql.com/doc/refman/8.0/en/miscellaneous-functions.html#function_values
         insert_bucket = f"""\
-            INSERT INTO {table} (date, client, sso_idp, b{bucket_num})
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num})
+            INSERT INTO {table} (date, client, sso_idp, b{bucket_num}, cohort_size)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num}), cohort_size=VALUES(cohort_size)
         """
         statements_and_values.append((
             insert_bucket, (
                 cohort_key.cohort_start_date,
                 cohort_key.client_type,
                 cohort_key.sso_idp,
-                count
+                count,
+                cohort_size
             )
         ))
 

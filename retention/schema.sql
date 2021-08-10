@@ -71,3 +71,16 @@ ALTER TABLE `cohorts_monthly`
    ADD COLUMN `sso_idp` varchar(16) NOT NULL DEFAULT '',
    ADD UNIQUE KEY `client_idp_date` (`client`,`sso_idp`, `date`),
    DROP KEY `client_date`;
+
+
+-- add a `cohort_size` column to each of the cohort tables, so that we can track
+-- the size of the entire cohort (and therefore give relative retention in %).
+
+ALTER TABLE `cohorts_daily`
+  ADD COLUMN `cohort_size` int(11);
+
+ALTER TABLE `cohorts_weekly`
+  ADD COLUMN `cohort_size` int(11);
+
+ALTER TABLE `cohorts_monthly`
+  ADD COLUMN `cohort_size` int(11);

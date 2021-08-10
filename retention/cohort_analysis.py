@@ -25,6 +25,8 @@ RIOTX_ANDROID = "android-riotx"
 ELEMENT_IOS = "ios"
 MISSING = "missing"
 OTHER = "other"
+# This is not a client itself but represents the usage of ANY client.
+COMBINED = "combined"
 
 MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -55,7 +57,7 @@ class Config:
 
 def str_to_ts(datestring):
     return int(
-        1000 * time.mktime(datetime.datetime.strptime(datestring, "%Y-%m-%d").timetuple())
+        1000 * datetime.datetime.strptime(datestring, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()
     )
 
 
@@ -67,7 +69,7 @@ def ts_to_str(ts):
         (str): date in format %Y-%m-%d
     """
 
-    return(datetime.datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d"))
+    return datetime.datetime.fromtimestamp(ts / 1000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
 
 def get_args():
@@ -101,7 +103,7 @@ def get_args():
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--cohort_start_date",
-        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
+        type=str_to_ts,
         help="""
             Enable cohort mode. In this mode, a single cohort of PERIOD days is tracked
             through BUCKETS activity buckets, each of PERIOD days. Option gives the
@@ -111,7 +113,7 @@ def get_args():
 
     group.add_argument(
         "--bucket_start_date",
-        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d"),
+        type=str_to_ts,
         help="""
             Enable bucket mode. In this mode, a single activity bucket of PERIOD days
             is analyzed for activity from each of BUCKETS cohorts of PERIOD days.
@@ -129,7 +131,6 @@ def parse_cohort_parameters(args):
     elif args.bucket_start_date:
         mode = "bucket"
         date = args.bucket_start_date
-    date = int(date.strftime("%s")) * 1000
 
     period = args.period
     if period == 1:
@@ -366,6 +367,8 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
     other_count = client_types.get(OTHER, 0)
     web_count = client_types.get(WEB, 0)
 
+    combined_count = client_types.get(COMBINED, 0)
+
     missing_count = client_types.get(MISSING, 0)
 
     if missing_count > 0:
@@ -382,7 +385,8 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
                     RIOTX_ANDROID: riotx_android_count,
                     ELEMENT_ELECTRON: element_electron_count,
                     ELEMENT_IOS: element_ios_count,
-                    WEB: web_count})
+                    WEB: web_count,
+                    COMBINED: combined_count})
 
 
 def get_cohort_users_and_client_mapping(
@@ -476,7 +480,7 @@ def get_cohort_clients_bucket(
 
     # build a list of users for each client, to deduplicate users
     # map from client to a set of (user_id, sso_idp) pairs
-    clients_to_users = {}  # type: Dict[str, Set[Tuple[str, str]]]
+    clients_to_users = {COMBINED: set()}  # type: Dict[str, Set[Tuple[str, str]]]
     for user in cohort_users:
         # the user might have registered with more than one SSO IdP; if so, we just
         # pick the first one.
@@ -484,7 +488,10 @@ def get_cohort_clients_bucket(
 
         for device_id in bucket_user_device_map.get(user.user_id, []):
             client = users_and_devices_to_client[user.user_id + "+" + device_id]
-            clients_to_users.setdefault(client, set()).add((user.user_id, sso_idp))
+            user_sso_tuple = (user.user_id, sso_idp)
+            clients_to_users.setdefault(client, set()).add(user_sso_tuple)
+            # We also make sure to include the in the combined total.
+            clients_to_users[COMBINED].add(user_sso_tuple)
 
     # Now, for each SSO IdP, build a count of users per client.
     #
@@ -506,8 +513,9 @@ def get_cohort_clients_bucket(
             yield cohort_key, count
 
 
-# the result type of the generate methods.
-# A set of (cohort key, bucket number, count) rows
+# the result types of the generate methods.
+# A set of (cohort key, bucket number, count, cohort size) rows describing how many users in
+# the cohort appear in the given bucket and what the size of the cohort is
 CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
 
 
@@ -554,7 +562,7 @@ def generate_by_cohort(
         )
 
         for cohort_key, count in client_types:
-            yield cohort_key, bucket_num, count
+            yield cohort_key, bucket_num, count, len(cohort_users)
 
 
 def generate_by_bucket(
@@ -595,24 +603,32 @@ def generate_by_bucket(
             bucket_end_date,
         )
         for cohort_key, count in client_types:
-            yield cohort_key, bucket_num, count
+            yield cohort_key, bucket_num, count, len(cohort_users)
 
 
 def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):
     statements_and_values = []
 
-    for cohort_key, bucket_num, count in buckets_stats:
+    for cohort_key, bucket_num, count, cohort_size in buckets_stats:
+        # this seems to be how it's meant to be done going forwards (but not supported on old versions)
+        # insert_bucket = f"""\
+        #     INSERT INTO {table} (date, client, sso_idp, b{bucket_num}, cohort_size)
+        #     VALUES (%s, %s, %s, %s, %s) AS new
+        #     ON DUPLICATE KEY UPDATE b{bucket_num}=new.b{bucket_num}, cohort_size=new.cohort_size
+        # """
+        # VALUES is deprecated: see https://dev.mysql.com/doc/refman/8.0/en/miscellaneous-functions.html#function_values
         insert_bucket = f"""\
-            INSERT INTO {table} (date, client, sso_idp, b{bucket_num})
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num})
+            INSERT INTO {table} (date, client, sso_idp, b{bucket_num}, cohort_size)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE b{bucket_num}=VALUES(b{bucket_num}), cohort_size=VALUES(cohort_size)
         """
         statements_and_values.append((
             insert_bucket, (
                 cohort_key.cohort_start_date,
                 cohort_key.client_type,
                 cohort_key.sso_idp,
-                count
+                count,
+                cohort_size
             )
         ))
 

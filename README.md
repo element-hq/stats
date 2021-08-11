@@ -31,3 +31,7 @@ To then run the cohort analysis script:
 docker build -t cohort_analysis .
 docker run -it --env-file .env --network synapse --network-alias cohort-analysis --rm cohort_analysis <ARGS>
 ```
+
+## Unit tests
+
+**DO NOT** run the unit tests against a real Synapse database. The unit tests will create their own tables, deleting existing ones first if necessary.

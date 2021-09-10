@@ -516,7 +516,7 @@ def get_cohort_clients_bucket(
 # the result types of the generate methods.
 # A set of (cohort key, bucket number, count, cohort size) rows describing how many users in
 # the cohort appear in the given bucket and what the size of the cohort is
-CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
+CohortStatsResult = Iterable[Tuple[CohortKey, int, int, int]]
 
 
 def generate_by_cohort(

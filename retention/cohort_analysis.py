@@ -514,9 +514,21 @@ def get_cohort_clients_bucket(
 
 
 # the result types of the generate methods.
-# A set of (cohort key, bucket number, count, cohort size) rows describing how many users in
+# A set of (cohort key, bucket number, count, cohort size?) rows describing how many users in
 # the cohort appear in the given bucket and what the size of the cohort is
-CohortStatsResult = Iterable[Tuple[CohortKey, int, int]]
+# Cohort size is optional as we are not able to determine the true cohort
+# size per-client (since it includes users that register but do not log in).
+CohortStatsResult = Iterable[Tuple[CohortKey, int, int, Optional[int]]]
+
+
+def identity_provider_to_cohort_size(cohort_users: Collection[User]) -> Counter[str]:
+    result = Counter()
+    for user in cohort_users:
+        # the user might have registered with more than one SSO IdP; if so, we just
+        # pick the first one.
+        sso_idp = user.auth_providers[0] if user.auth_providers else ''
+        result[sso_idp] += 1
+    return result
 
 
 def generate_by_cohort(
@@ -547,6 +559,7 @@ def generate_by_cohort(
 
     cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
                                                                                     cohort_end_date)
+    idp_to_cohort_size = identity_provider_to_cohort_size(cohort_users)
 
     for bucket in range(buckets):
         bucket_num = bucket + 1
@@ -562,7 +575,12 @@ def generate_by_cohort(
         )
 
         for cohort_key, count in client_types:
-            yield cohort_key, bucket_num, count, len(cohort_users)
+            if cohort_key.client_type == COMBINED:
+                cohort_size = idp_to_cohort_size[cohort_key.sso_idp]
+            else:
+                cohort_size = None
+
+            yield cohort_key, bucket_num, count, cohort_size
 
 
 def generate_by_bucket(
@@ -594,6 +612,8 @@ def generate_by_bucket(
         cohort_users, users_and_devices_to_client = get_cohort_users_and_client_mapping(cohort_start_date,
                                                                                         cohort_end_date)
 
+        idp_to_cohort_size = identity_provider_to_cohort_size(cohort_users)
+
         bucket_num = bucket + 1
         client_types = get_cohort_clients_bucket(
             cohort_users,
@@ -603,7 +623,12 @@ def generate_by_bucket(
             bucket_end_date,
         )
         for cohort_key, count in client_types:
-            yield cohort_key, bucket_num, count, len(cohort_users)
+            if cohort_key.client_type == COMBINED:
+                cohort_size = idp_to_cohort_size[cohort_key.sso_idp]
+            else:
+                cohort_size = None
+
+            yield cohort_key, bucket_num, count, cohort_size
 
 
 def write_to_mysql(table: str, buckets_stats: CohortStatsResult, dry_run: bool):

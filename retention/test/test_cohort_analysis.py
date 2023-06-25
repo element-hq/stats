@@ -187,14 +187,17 @@ class TestCohortAnalysis(unittest.TestCase):
         add_new_user_entry('user3', date_to_test)
         add_new_user_entry('user4', date_to_test + TWENTY_FOUR_HOURS)
 
-        users = cohort_analysis.get_new_users(1, date_to_test + (TWENTY_FOUR_HOURS * 10))
+        users = cohort_analysis.get_new_users(
+            1, date_to_test + (TWENTY_FOUR_HOURS * 10))
 
         self.assertEqual(len(users), 4)
 
-        users = cohort_analysis.get_new_users(date_to_test, date_to_test + TWENTY_FOUR_HOURS)
+        users = cohort_analysis.get_new_users(
+            date_to_test, date_to_test + TWENTY_FOUR_HOURS)
         self.assertEqual(len(users), 2)
 
-        users = cohort_analysis.get_new_users(date_to_test, date_to_test + 2 * TWENTY_FOUR_HOURS)
+        users = cohort_analysis.get_new_users(
+            date_to_test, date_to_test + 2 * TWENTY_FOUR_HOURS)
         self.assertEqual(len(users), 3)
 
     def test_get_cohort_clients_bucket(self):
@@ -210,10 +213,14 @@ class TestCohortAnalysis(unittest.TestCase):
         add_new_user_entry("user3", cohort_analysis.str_to_ts("2018-10-09"))
 
         # add some visits for the users
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-12-13"))
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-12-14"))
-        add_user_daily_visit_entry("user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-12-05"))
-        add_user_daily_visit_entry("user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-12-06"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-12-13"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-12-14"))
+        add_user_daily_visit_entry(
+            "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-12-05"))
+        add_user_daily_visit_entry(
+            "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-12-06"))
 
         bucket_start_date = cohort_analysis.str_to_ts("2018-12-01")
         bucket_end_date = cohort_analysis.str_to_ts("2018-12-31")
@@ -254,15 +261,24 @@ class TestCohortAnalysis(unittest.TestCase):
         add_new_user_entry("user3", cohort_analysis.str_to_ts("2018-10-05"))
 
         # add some visits for the users
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-07"))
-        add_user_daily_visit_entry("user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-07"))
+        add_user_daily_visit_entry(
+            "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
 
         results = list(cohort_analysis.generate_by_cohort(
             cohort_start_date,
@@ -271,24 +287,42 @@ class TestCohortAnalysis(unittest.TestCase):
         ))
 
         self.assertEqual(results, [
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android', sso_idp=''), 1, 2, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android-riotx', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='electron', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='ios', sso_idp=''), 1, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='web', sso_idp=''), 1, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='combined', sso_idp=''), 1, 3, 3),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android', sso_idp=''), 2, 2, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android-riotx', sso_idp=''), 2, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='electron', sso_idp=''), 2, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='ios', sso_idp=''), 2, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='web', sso_idp=''), 2, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='combined', sso_idp=''), 2, 3, 3),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android', sso_idp=''), 3, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android-riotx', sso_idp=''), 3, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='electron', sso_idp=''), 3, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='ios', sso_idp=''), 3, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='web', sso_idp=''), 3, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='combined', sso_idp=''), 3, 1, 3)
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android', sso_idp=''), 1, 2, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android-riotx', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='electron', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='ios', sso_idp=''), 1, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='web', sso_idp=''), 1, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='combined', sso_idp=''), 1, 3, 3),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android', sso_idp=''), 2, 2, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android-riotx', sso_idp=''), 2, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='electron', sso_idp=''), 2, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='ios', sso_idp=''), 2, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='web', sso_idp=''), 2, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='combined', sso_idp=''), 2, 3, 3),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android', sso_idp=''), 3, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android-riotx', sso_idp=''), 3, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='electron', sso_idp=''), 3, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='ios', sso_idp=''), 3, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='web', sso_idp=''), 3, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='combined', sso_idp=''), 3, 1, 3)
         ])
 
     def test_generate_by_bucket(self):
@@ -307,18 +341,30 @@ class TestCohortAnalysis(unittest.TestCase):
         add_new_user_entry("user5", cohort_analysis.str_to_ts("2018-10-06"))
 
         # add some visits for the users
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-07"))
-        add_user_daily_visit_entry("user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
-        add_user_daily_visit_entry("user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-07"))
-        add_user_daily_visit_entry("user4", "U4D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
-        add_user_daily_visit_entry("user4", "U4D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-07"))
-        add_user_daily_visit_entry("user5", "U5D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-07"))
+        add_user_daily_visit_entry(
+            "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
+            "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-07"))
+        add_user_daily_visit_entry(
+            "user4", "U4D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user4", "U4D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-07"))
+        add_user_daily_visit_entry(
+            "user5", "U5D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
 
         results = list(cohort_analysis.generate_by_bucket(
             bucket_start_date,
@@ -327,18 +373,30 @@ class TestCohortAnalysis(unittest.TestCase):
         ))
 
         self.assertEqual(results, [
-            (CohortKey(cohort_start_date='2018-10-06', client_type='android', sso_idp=''), 1, 2, None),
-            (CohortKey(cohort_start_date='2018-10-06', client_type='android-riotx', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-06', client_type='electron', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-06', client_type='ios', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-06', client_type='web', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-06', client_type='combined', sso_idp=''), 1, 2, 2),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android', sso_idp=''), 2, 2, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='android-riotx', sso_idp=''), 2, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='electron', sso_idp=''), 2, 0, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='ios', sso_idp=''), 2, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='web', sso_idp=''), 2, 1, None),
-            (CohortKey(cohort_start_date='2018-10-05', client_type='combined', sso_idp=''), 2, 3, 3)
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='android', sso_idp=''), 1, 2, None),
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='android-riotx', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='electron', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='ios', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='web', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='combined', sso_idp=''), 1, 2, 2),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android', sso_idp=''), 2, 2, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='android-riotx', sso_idp=''), 2, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='electron', sso_idp=''), 2, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='ios', sso_idp=''), 2, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='web', sso_idp=''), 2, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='combined', sso_idp=''), 2, 3, 3)
         ])
 
 

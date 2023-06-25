@@ -30,7 +30,8 @@ COMBINED = "combined"
 
 MS_PER_DAY = 24 * 60 * 60 * 1000
 
-logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s %(message)s',
+                    datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
 
 class Config:
@@ -57,7 +58,8 @@ class Config:
 
 def str_to_ts(datestring):
     return int(
-        1000 * datetime.datetime.strptime(datestring, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp()
+        1000 * datetime.datetime.strptime(datestring, "%Y-%m-%d").replace(
+            tzinfo=datetime.timezone.utc).timestamp()
     )
 
 
@@ -372,13 +374,18 @@ def estimate_client_types(client_types: Mapping[str, int]) -> Mapping[str, int]:
     missing_count = client_types.get(MISSING, 0)
 
     if missing_count > 0:
-        count_known = element_android_count + riotx_android_count + element_electron_count + element_ios_count + other_count + web_count
+        count_known = element_android_count + riotx_android_count + \
+            element_electron_count + element_ios_count + other_count + web_count
 
         if count_known > 0:
-            element_android_count = element_android_count + int((element_android_count / count_known) * missing_count)
-            riotx_android_count = riotx_android_count + int((riotx_android_count / count_known) * missing_count)
-            element_electron_count = element_electron_count + int((element_electron_count / count_known) * missing_count)
-            element_ios_count = element_ios_count + int((element_ios_count / count_known) * missing_count)
+            element_android_count = element_android_count + \
+                int((element_android_count / count_known) * missing_count)
+            riotx_android_count = riotx_android_count + \
+                int((riotx_android_count / count_known) * missing_count)
+            element_electron_count = element_electron_count + \
+                int((element_electron_count / count_known) * missing_count)
+            element_ios_count = element_ios_count + \
+                int((element_ios_count / count_known) * missing_count)
             web_count = web_count + int((web_count / count_known) * missing_count)
 
     return Counter({ELEMENT_ANDROID: element_android_count,
@@ -424,8 +431,10 @@ def get_cohort_users_and_client_mapping(
     )
     logging.info(f"users_devices_user_agents count is {len(users_devices_user_agents)}")
 
-    users_and_devices_to_client = construct_users_and_devices_to_clients_mapping(users_devices_user_agents)
-    logging.info(f"users_and_devices_to_client count is {len(users_and_devices_to_client)}")
+    users_and_devices_to_client = construct_users_and_devices_to_clients_mapping(
+        users_devices_user_agents)
+    logging.info(
+        f"users_and_devices_to_client count is {len(users_and_devices_to_client)}")
 
     return (cohort_users, users_and_devices_to_client)
 

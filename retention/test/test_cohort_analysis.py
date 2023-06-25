@@ -379,7 +379,7 @@ class TestCohortAnalysis(unittest.TestCase):
              client_type='android-riotx', sso_idp=''), 1, 0, None),
             (CohortKey(cohort_start_date='2018-10-06',
              client_type='electron', sso_idp=''), 1, 0, None),
-            (CohortKey(cohort_start_date='2018-10-06',
+            (CohortKey(cohort_start_date='2018-10q-06',
              client_type='ios', sso_idp=''), 1, 0, None),
             (CohortKey(cohort_start_date='2018-10-06',
              client_type='web', sso_idp=''), 1, 0, None),
@@ -398,6 +398,40 @@ class TestCohortAnalysis(unittest.TestCase):
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='combined', sso_idp=''), 2, 3, 3)
         ])
+
+    def test_user_agent_to_client(self):
+        test_ua = [
+            # Electron
+            ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Element/1.11.33 Chrome/112.0.5615.183 Electron/24.3.1 Safari/537.36",
+             cohort_analysis.ELEMENT_ELECTRON),
+            (" Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Element/1.11.31 Chrome/112.0.5615.87 Electron/24.1.2 Safari/537.36",
+             cohort_analysis.ELEMENT_ELECTRON),
+
+            # Web
+            ("Mozilla/5.0 (Windows NT 10.0; rv:102.0) Gecko/20100101 Firefox/102.0",
+             cohort_analysis.WEB),
+            ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36", cohort_analysis.WEB),
+
+            # Android
+            ("Element/1.5.25 (HUAWEI MOA-LX9N; Android 10; MOA-L49 3.1.0.110(C10E3R3P1); Flavour FDroid; MatrixAndroidSdk2 1.5.25)",
+                cohort_analysis.ELEMENT_ANDROID),
+            ("Element/1.5.32 (Google Pixel 6 Pro; Android 13; TQ2A.230505.002; Flavour GooglePlay; MatrixAndroidSdk2 1.5.32)",
+                cohort_analysis.ELEMENT_ANDROID),
+
+            # iOS
+            ("Element/1.10.12 (iPhone 14 Pro Max; iOS 16.4.1; Scale/3.00)",
+                cohort_analysis.ELEMENT_IOS),
+            ("Element/1.10.12 (iPhone 7 Plus; iOS 15.7.3; Scale/1.00)",
+                cohort_analysis.ELEMENT_IOS),
+
+            # Element X Android - No user agent defined as yet.
+            # ("", cohort_analysis.ELEMENTX_ANDROID)
+
+            # Element X iOS
+            ("Element X/1.1.5 (iPhone 11; iOS 16.5; Scale/2.00)", cohort_analysis.ELEMENTX_IOS)
+        ]
+        for i in test_ua:
+            self.assertEqual(i[1], cohort_analysis.user_agent_to_client(i[0]))
 
 
 if __name__ == "__main__":

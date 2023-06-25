@@ -22,7 +22,9 @@ ELEMENT_ELECTRON = "electron"
 WEB = "web"
 ELEMENT_ANDROID = "android"
 RIOTX_ANDROID = "android-riotx"
+ELEMENTX_ANDROID = "androidx"
 ELEMENT_IOS = "ios"
+ELEMENTX_IOS = "iosx"
 MISSING = "missing"
 OTHER = "other"
 # This is not a client itself but represents the usage of ANY client.
@@ -157,7 +159,12 @@ def user_agent_to_client(user_agent):
         return MISSING
 
     ua = user_agent.lower()
-    if "riot" in ua or "element" in ua:
+    if "element x" in ua:
+        if "ios" in ua:
+            return ELEMENTX_IOS
+        elif "android" in ua:
+            return ELEMENTX_ANDROID
+    elif "riot" in ua or "element" in ua:
         if "electron" in ua:
             return ELEMENT_ELECTRON
         elif "android" in ua and "riotx" in ua:

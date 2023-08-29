@@ -459,7 +459,8 @@ class TestCohortAnalysis(unittest.TestCase):
                 cohort_analysis.ELEMENT_IOS),
 
             # Element X Android - TODO replace with real UA
-            ("Element X/1.1.5 (Android)", cohort_analysis.ELEMENTX_ANDROID),
+            ("Element X/0.1.0 (Google Pixel 4a (5G); Android 13; TQ3A.230605.011.2023062800; Sdk TODO)",
+             cohort_analysis.ELEMENTX_ANDROID),
 
             # Element X iOS
             ("Element X/1.1.5 (iPhone 11; iOS 16.5; Scale/2.00)", cohort_analysis.ELEMENTX_IOS)

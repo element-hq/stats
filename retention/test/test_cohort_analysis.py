@@ -3,6 +3,7 @@ import unittest
 import retention.cohort_analysis as cohort_analysis
 from retention.cohort_analysis import CohortKey
 
+
 CONFIG = cohort_analysis.Config()
 
 ONE_DAY = 86400_000
@@ -221,6 +222,8 @@ class TestCohortAnalysis(unittest.TestCase):
             "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-12-05"))
         add_user_daily_visit_entry(
             "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-12-06"))
+        add_user_daily_visit_entry(
+            "user2", "U2D3", "Element X (iOS; ...)", cohort_analysis.str_to_ts("2018-12-07"))
 
         bucket_start_date = cohort_analysis.str_to_ts("2018-12-01")
         bucket_end_date = cohort_analysis.str_to_ts("2018-12-31")
@@ -244,7 +247,9 @@ class TestCohortAnalysis(unittest.TestCase):
             (CohortKey("2018-10-01", "electron", ""), 0),
             (CohortKey("2018-10-01", "ios", ""), 1),
             (CohortKey("2018-10-01", "web", ""), 1),
-            (CohortKey("2018-10-01", "combined", ""), 2)
+            (CohortKey("2018-10-01", "combined", ""), 2),
+            (CohortKey("2018-10-01", "iosx", ""), 1),
+            (CohortKey("2018-10-01", "androidx", ""), 0)
         ])
 
     def test_generate_by_cohort(self):
@@ -268,6 +273,8 @@ class TestCohortAnalysis(unittest.TestCase):
         add_user_daily_visit_entry(
             "user1", "U1D1", "Mozilla/5.0", cohort_analysis.str_to_ts("2018-10-07"))
         add_user_daily_visit_entry(
+            "user1", "U1D2", "Element X (iOS; ...)", cohort_analysis.str_to_ts("2018-10-07"))
+        add_user_daily_visit_entry(
             "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
         add_user_daily_visit_entry(
             "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
@@ -279,6 +286,8 @@ class TestCohortAnalysis(unittest.TestCase):
             "user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
         add_user_daily_visit_entry(
             "user3", "U3D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user3", "U3D2", "Element X (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
 
         results = list(cohort_analysis.generate_by_cohort(
             cohort_start_date,
@@ -300,6 +309,10 @@ class TestCohortAnalysis(unittest.TestCase):
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='combined', sso_idp=''), 1, 3, 3),
             (CohortKey(cohort_start_date='2018-10-05',
+             client_type='iosx', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='androidx', sso_idp=''), 1, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
              client_type='android', sso_idp=''), 2, 2, None),
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='android-riotx', sso_idp=''), 2, 0, None),
@@ -312,6 +325,10 @@ class TestCohortAnalysis(unittest.TestCase):
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='combined', sso_idp=''), 2, 3, 3),
             (CohortKey(cohort_start_date='2018-10-05',
+             client_type='iosx', sso_idp=''), 2, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='androidx', sso_idp=''), 2, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
              client_type='android', sso_idp=''), 3, 0, None),
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='android-riotx', sso_idp=''), 3, 0, None),
@@ -322,7 +339,11 @@ class TestCohortAnalysis(unittest.TestCase):
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='web', sso_idp=''), 3, 1, None),
             (CohortKey(cohort_start_date='2018-10-05',
-             client_type='combined', sso_idp=''), 3, 1, 3)
+             client_type='combined', sso_idp=''), 3, 1, 3),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='iosx', sso_idp=''), 3, 1, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='androidx', sso_idp=''), 3, 0, None)
         ])
 
     def test_generate_by_bucket(self):
@@ -350,6 +371,8 @@ class TestCohortAnalysis(unittest.TestCase):
         add_user_daily_visit_entry(
             "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
         add_user_daily_visit_entry(
+            "user2", "U2D2", "Element X (iOS; ...)", cohort_analysis.str_to_ts("2018-10-05"))
+        add_user_daily_visit_entry(
             "user2", "U2D1", "Riot (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
         add_user_daily_visit_entry(
             "user2", "U2D2", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-05"))
@@ -365,6 +388,8 @@ class TestCohortAnalysis(unittest.TestCase):
             "user4", "U4D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-07"))
         add_user_daily_visit_entry(
             "user5", "U5D1", "Element (Android; ...)", cohort_analysis.str_to_ts("2018-10-06"))
+        add_user_daily_visit_entry(
+            "user5", "U5D2", "Element X (iOS; ...)", cohort_analysis.str_to_ts("2018-10-06"))
 
         results = list(cohort_analysis.generate_by_bucket(
             bucket_start_date,
@@ -373,6 +398,7 @@ class TestCohortAnalysis(unittest.TestCase):
         ))
 
         self.assertEqual(results, [
+
             (CohortKey(cohort_start_date='2018-10-06',
              client_type='android', sso_idp=''), 1, 2, None),
             (CohortKey(cohort_start_date='2018-10-06',
@@ -385,6 +411,10 @@ class TestCohortAnalysis(unittest.TestCase):
              client_type='web', sso_idp=''), 1, 0, None),
             (CohortKey(cohort_start_date='2018-10-06',
              client_type='combined', sso_idp=''), 1, 2, 2),
+            (CohortKey(cohort_start_date='2018-10-06',
+                       client_type='iosx', sso_idp=''), 1, 1, None),
+            (CohortKey(cohort_start_date='2018-10-06',
+             client_type='androidx', sso_idp=''), 1, 0, None),
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='android', sso_idp=''), 2, 2, None),
             (CohortKey(cohort_start_date='2018-10-05',
@@ -396,8 +426,47 @@ class TestCohortAnalysis(unittest.TestCase):
             (CohortKey(cohort_start_date='2018-10-05',
              client_type='web', sso_idp=''), 2, 1, None),
             (CohortKey(cohort_start_date='2018-10-05',
-             client_type='combined', sso_idp=''), 2, 3, 3)
+             client_type='combined', sso_idp=''), 2, 3, 3),
+            (CohortKey(cohort_start_date='2018-10-05',
+             client_type='iosx', sso_idp=''), 2, 0, None),
+            (CohortKey(cohort_start_date='2018-10-05',
+                       client_type='androidx', sso_idp=''), 2, 0, None),
         ])
+
+    def test_user_agent_to_client(self):
+        test_ua = [
+            # Electron
+            ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Element/1.11.33 Chrome/112.0.5615.183 Electron/24.3.1 Safari/537.36",
+             cohort_analysis.ELEMENT_ELECTRON),
+            (" Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Element/1.11.31 Chrome/112.0.5615.87 Electron/24.1.2 Safari/537.36",
+             cohort_analysis.ELEMENT_ELECTRON),
+
+            # Web
+            ("Mozilla/5.0 (Windows NT 10.0; rv:102.0) Gecko/20100101 Firefox/102.0",
+             cohort_analysis.WEB),
+            ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36", cohort_analysis.WEB),
+
+            # Android
+            ("Element/1.5.25 (HUAWEI MOA-LX9N; Android 10; MOA-L49 3.1.0.110(C10E3R3P1); Flavour FDroid; MatrixAndroidSdk2 1.5.25)",
+                cohort_analysis.ELEMENT_ANDROID),
+            ("Element/1.5.32 (Google Pixel 6 Pro; Android 13; TQ2A.230505.002; Flavour GooglePlay; MatrixAndroidSdk2 1.5.32)",
+                cohort_analysis.ELEMENT_ANDROID),
+
+            # iOS
+            ("Element/1.10.12 (iPhone 14 Pro Max; iOS 16.4.1; Scale/3.00)",
+                cohort_analysis.ELEMENT_IOS),
+            ("Element/1.10.12 (iPhone 7 Plus; iOS 15.7.3; Scale/1.00)",
+                cohort_analysis.ELEMENT_IOS),
+
+            # Element X Android - TODO replace with real UA
+            ("Element X/0.1.0 (Google Pixel 4a (5G); Android 13; TQ3A.230605.011.2023062800; Sdk TODO)",
+             cohort_analysis.ELEMENTX_ANDROID),
+
+            # Element X iOS
+            ("Element X/1.1.5 (iPhone 11; iOS 16.5; Scale/2.00)", cohort_analysis.ELEMENTX_IOS)
+        ]
+        for i in test_ua:
+            self.assertEqual(i[1], cohort_analysis.user_agent_to_client(i[0]))
 
 
 if __name__ == "__main__":
